@@ -5,8 +5,8 @@ from app.routers import auth, devices, resources
 # Create FastAPI application
 app = FastAPI(
     title="IoT Management System",
-    description="Sistema de Gestão de Recursos Compartilhados com simulação IoT",
-    version="1.0.0"
+    description="Sistema de Gestão de Recursos Compartilhados com IoT",
+    version="1.0.0",
 )
 
 # Configure CORS to allow frontend communication
@@ -31,7 +31,7 @@ async def root():
         "message": "IoT Management System API",
         "version": "1.0.0",
         "docs": "/docs",
-        "redoc": "/redoc"
+        "redoc": "/redoc",
     }
 
 
@@ -43,4 +43,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
