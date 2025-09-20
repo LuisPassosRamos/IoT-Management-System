@@ -3,7 +3,11 @@ import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+# Get absolute path to data directory
+if os.path.exists("data/db.json"):
+    DATA_DIR = "data"
+else:
+    DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
 DB_FILE = os.path.join(DATA_DIR, "db.json")
 
 
