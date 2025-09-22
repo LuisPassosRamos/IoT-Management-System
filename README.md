@@ -175,8 +175,6 @@ Para usar em produção, considere:
 
 ## 📄 Licença
 
-Este projeto é open source e está disponível sob a licença MIT.
+Este projeto está disponível sob a licença MIT.
 
 ---
-
-**Desenvolvido com 💚 para o IFBA - Instituto Federal da Bahia**
