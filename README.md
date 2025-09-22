@@ -37,7 +37,7 @@ Sistema de Gestão de Recursos Compartilhados com simulação IoT - Projeto dese
 ## 🔧 Instalação e Execução
 
 ### Pré-requisitos
-- Python 3.11+
+- Python 3.13+
 - Docker (opcional)
 
 ### Método 1: Execução Local
