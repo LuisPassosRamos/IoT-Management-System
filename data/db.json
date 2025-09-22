@@ -26,7 +26,7 @@
       "name": "Sensor Temperatura Lab",
       "type": "sensor",
       "status": "active",
-      "value": 24.5,
+      "value": 24.4,
       "resource_id": 2
     }
   ],
