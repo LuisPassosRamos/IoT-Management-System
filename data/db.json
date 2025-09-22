@@ -1,0 +1,67 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin"
+    },
+    {
+      "id": 2,
+      "username": "user",
+      "password": "user123",
+      "role": "user"
+    }
+  ],
+  "devices": [
+    {
+      "id": 1,
+      "name": "Tranca Sala 101",
+      "type": "lock",
+      "status": "locked",
+      "resource_id": 1
+    },
+    {
+      "id": 2,
+      "name": "Sensor Temperatura Lab",
+      "type": "sensor",
+      "status": "active",
+      "value": 24.4,
+      "resource_id": 2
+    }
+  ],
+  "resources": [
+    {
+      "id": 1,
+      "name": "Sala 101",
+      "description": "Sala de aula principal",
+      "available": true,
+      "reserved_by": null,
+      "device_id": 1
+    },
+    {
+      "id": 2,
+      "name": "Laboratório de Informática",
+      "description": "Lab com 20 computadores",
+      "available": true,
+      "reserved_by": null,
+      "device_id": 2
+    }
+  ],
+  "reservations": [
+    {
+      "resource_id": 1,
+      "user_id": 2,
+      "status": "active",
+      "id": 1,
+      "timestamp": "2025-09-21T19:35:46.151114"
+    },
+    {
+      "resource_id": 2,
+      "user_id": 2,
+      "status": "active",
+      "id": 2,
+      "timestamp": "2025-09-21T19:35:47.738012"
+    }
+  ]
+}
