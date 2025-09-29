@@ -217,7 +217,7 @@
             <p class="text-muted small mb-1">Inicio: ${formatDate(item.start_time)} | Expira: ${formatDate(item.expires_at)}</p>
             <p class="text-muted small mb-0">Usuario: ${item.username || item.user_id}</p>
           </div>
-          <button class="btn btn-sm btn-outline-danger" data-res-id="${item.resource_id}">Encerrar</button>
+          <button class="btn btn-sm btn-outline-danger" data-res-id="${item.resource_id}" aria-label="Encerrar reserva ${item.resource_name || item.resource_id}">Encerrar</button>
         </div>
       </div>
     `).join('');
@@ -241,7 +241,7 @@
       `;
       if (!includeActions) return `<tr>${base}</tr>`;
       const action = (item.status === 'active' || item.status === 'scheduled')
-        ? `<button class="btn btn-sm btn-outline-danger" data-force-id="${item.resource_id}">Forcar termino</button>`
+        ? `<button class="btn btn-sm btn-outline-danger" data-force-id="${item.resource_id}" aria-label="Forcar termino da reserva ${item.resource_name || item.resource_id}">Forcar termino</button>`
         : '-';
       return `<tr>${base}<td>${action}</td></tr>`;
     }).join('');
@@ -310,7 +310,7 @@
           <td>${resource.type || '-'}</td>
           <td>
             <button class="btn btn-sm btn-outline-primary me-2" data-edit-resource="${resource.id}">Editar</button>
-            <button class="btn btn-sm btn-outline-danger" data-delete-resource="${resource.id}">Remover</button>
+            <button class="btn btn-sm btn-outline-danger" data-delete-resource="${resource.id}" aria-label="Remover recurso ${resource.name}">Remover</button>
           </td>
         </tr>
       `).join('');
@@ -326,7 +326,7 @@
           <td>${device.status}</td>
           <td>${device.resource_id || '-'}</td>
           <td>
-            <button class="btn btn-sm btn-outline-danger" data-delete-device="${device.id}">Remover</button>
+            <button class="btn btn-sm btn-outline-danger" data-delete-device="${device.id}" aria-label="Remover dispositivo ${device.name}">Remover</button>
           </td>
         </tr>
       `).join('');
@@ -341,8 +341,8 @@
           <td>${user.role}</td>
           <td>${user.is_active ? 'Ativo' : 'Inativo'}</td>
           <td>
-            <button class="btn btn-sm btn-outline-secondary me-2" data-permission-user="${user.id}">Permissoes</button>
-            <button class="btn btn-sm btn-outline-danger" data-delete-user="${user.id}">Remover</button>
+            <button class="btn btn-sm btn-outline-secondary me-2" data-permission-user="${user.id}" aria-label="Editar permissoes do usuario ${user.username}">Permissoes</button>
+            <button class="btn btn-sm btn-outline-danger" data-delete-user="${user.id}" aria-label="Remover usuario ${user.username}">Remover</button>
           </td>
         </tr>
       `).join('');
