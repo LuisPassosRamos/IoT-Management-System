@@ -1,3 +1,4 @@
+﻿import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
@@ -5,8 +6,7 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.storage.json_storage import storage
 
-# Simple secret key for JWT (in production, use environment variable)
-SECRET_KEY = "iot-management-secret-key-2024"
+SECRET_KEY = os.getenv("SECRET_KEY", "iot-management-secret-key-2024")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -18,13 +18,12 @@ def create_access_token(
 ) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-
+    expire_delta = (
+        expires_delta
+        if expires_delta
+        else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    expire = datetime.utcnow() + expire_delta
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -60,13 +59,18 @@ def get_current_user(
     if payload is None:
         raise credentials_exception
 
-    username: str = payload.get("sub")
-    if username is None:
-        raise credentials_exception
+    username = payload.get("sub")
+    user_id = payload.get("user_id")
 
-    # Get user from storage
     users = storage.get_users()
-    user = next((u for u in users if u["username"] == username), None)
+    user = None
+
+    if user_id is not None:
+        user = next((u for u in users if u.get("id") == user_id), None)
+
+    if user is None and username is not None:
+        user = next((u for u in users if u.get("username") == username), None)
+
     if user is None:
         raise credentials_exception
 
