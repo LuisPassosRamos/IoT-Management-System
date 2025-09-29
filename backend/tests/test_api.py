@@ -1,133 +1,192 @@
-import os
-import sys
+﻿import os
+from pathlib import Path
+
 import pytest
-
-# Add the app directory to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
 from fastapi.testclient import TestClient
+
+# Configure database URL before importing the application
+TEST_DB_PATH = Path(__file__).parent / "test_iot.db"
+if TEST_DB_PATH.exists():
+    TEST_DB_PATH.unlink()
+
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"  # noqa: E501
+
+from app.db.base import Base
+from app.db.session import engine
+from app.db.init_db import init_db
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def reset_database() -> None:
+    """Reset the SQLite database before each test run."""
+
+    Base.metadata.drop_all(bind=engine)
+    init_db()
+    yield
+
+
 @pytest.fixture(scope="module")
-def client():
-    """Provide a test client with proper resource cleanup."""
+def client() -> TestClient:
+    """Provide a test client for API calls."""
+
     with TestClient(app) as test_client:
         yield test_client
 
 
-def test_health_check(client):
-    """Test health check endpoint."""
+def login(client: TestClient, username: str, password: str) -> dict:
+    response = client.post("/login", json={"username": username, "password": password})
+    assert response.status_code == 200
+    return response.json()
+
+
+def auth_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
 
-def test_root_endpoint(client):
-    """Test root endpoint."""
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "IoT Management System API" in response.json()["message"]
-
-
-def test_login_success(client):
-    """Test successful login."""
-    response = client.post("/login", json={
-        "username": "admin",
-        "password": "admin123"
-    })
-    assert response.status_code == 200
-    data = response.json()
-    assert "token" in data
+def test_login_success(client: TestClient) -> None:
+    data = login(client, "admin", "admin123")
     assert data["role"] == "admin"
-    assert data["username"] == "admin"
+    assert "token" in data
 
 
-def test_login_failure(client):
-    """Test failed login with invalid credentials."""
-    response = client.post("/login", json={
-        "username": "invalid",
-        "password": "invalid"
-    })
+def test_login_failure(client: TestClient) -> None:
+    response = client.post("/login", json={"username": "ghost", "password": "nope"})
     assert response.status_code == 401
 
 
-def test_devices_without_auth(client):
-    """Test devices endpoint without authentication."""
-    response = client.get("/devices")
-    assert response.status_code == 401
-
-
-def test_devices_with_auth(client):
-    """Test devices endpoint with authentication."""
-    login_response = client.post("/login", json={
-        "username": "admin",
-        "password": "admin123"
-    })
-    token = login_response.json()["token"]
-
-    response = client.get(
-        "/devices",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    assert response.status_code == 200
-    devices = response.json()
-    assert isinstance(devices, list)
-    assert len(devices) >= 0
-
-
-def test_resources_with_auth(client):
-    """Test resources endpoint with authentication."""
-    login_response = client.post("/login", json={
-        "username": "user",
-        "password": "user123"
-    })
-    token = login_response.json()["token"]
-
-    response = client.get(
-        "/resources",
-        headers={"Authorization": f"Bearer {token}"}
-    )
+def test_user_can_list_permitted_resources(client: TestClient) -> None:
+    user = login(client, "user", "user123")
+    response = client.get("/resources", headers=auth_headers(user["token"]))
     assert response.status_code == 200
     resources = response.json()
-    assert isinstance(resources, list)
+    assert len(resources) >= 1
+    assert all("status" in item for item in resources)
 
 
-def test_device_action_with_auth(client):
-    """Test device action with authentication."""
-    login_response = client.post("/login", json={
-        "username": "admin",
-        "password": "admin123"
-    })
-    token = login_response.json()["token"]
+def test_admin_crud_resource(client: TestClient) -> None:
+    admin = login(client, "admin", "admin123")
+    headers = auth_headers(admin["token"])
 
-    response = client.post(
-        "/devices/1/action",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"action": "unlock"}
+    create_payload = {
+        "name": "Sala Maker",
+        "description": "Espaco colaborativo",
+        "type": "lab",
+        "location": "Bloco C",
+        "capacity": 8,
+    }
+    create_response = client.post("/resources", headers=headers, json=create_payload)
+    assert create_response.status_code == 201
+    resource_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/resources/{resource_id}",
+        headers=headers,
+        json={"status": "maintenance", "capacity": 12},
     )
-    assert response.status_code == 200
-    result = response.json()
-    assert result["success"] is True
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "maintenance"
+    assert update_response.json()["capacity"] == 12
+
+    delete_response = client.delete(f"/resources/{resource_id}", headers=headers)
+    assert delete_response.status_code == 204
 
 
-def test_reserve_resource(client):
-    """Test resource reservation."""
-    login_response = client.post("/login", json={
-        "username": "user",
-        "password": "user123"
-    })
-    token = login_response.json()["token"]
+def test_admin_manage_device(client: TestClient) -> None:
+    admin = login(client, "admin", "admin123")
+    headers = auth_headers(admin["token"])
 
-    response = client.post(
+    create_response = client.post(
+        "/devices",
+        headers=headers,
+        json={
+            "name": "Sensor Luminosidade",
+            "type": "sensor",
+            "status": "active",
+        },
+    )
+    assert create_response.status_code == 201
+    device_id = create_response.json()["id"]
+
+    get_response = client.get(f"/devices/{device_id}", headers=headers)
+    assert get_response.status_code == 200
+
+    update_response = client.put(
+        f"/devices/{device_id}",
+        headers=headers,
+        json={"status": "inactive"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "inactive"
+
+    delete_response = client.delete(f"/devices/{device_id}", headers=headers)
+    assert delete_response.status_code == 204
+
+
+def test_reservation_create_and_release(client: TestClient) -> None:
+    user = login(client, "user", "user123")
+    headers = auth_headers(user["token"])
+
+    reserve_response = client.post(
         "/resources/1/reserve",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"user_id": 2}
+        headers=headers,
+        json={"duration_minutes": 30},
     )
+    assert reserve_response.status_code == 200
+    reservation_id = reserve_response.json()["id"]
+    assert reserve_response.json()["status"] == "active"
+
+    release_response = client.post(
+        "/resources/1/release",
+        headers=headers,
+        json={"notes": "Uso concluido"},
+    )
+    assert release_response.status_code == 200
+    assert release_response.json()["status"] in {"completed", "cancelled"}
+    assert release_response.json()["id"] == reservation_id
+
+
+def test_reservation_conflict(client: TestClient) -> None:
+    user = login(client, "user", "user123")
+    headers = auth_headers(user["token"])
+    client.post(
+        "/resources/1/reserve",
+        headers=headers,
+        json={"duration_minutes": 30},
+    )
+
+    conflict_response = client.post(
+        "/resources/1/reserve",
+        headers=headers,
+        json={"duration_minutes": 60},
+    )
+    assert conflict_response.status_code == 409
+
+
+def test_admin_export_reservations_csv(client: TestClient) -> None:
+    admin = login(client, "admin", "admin123")
+    headers = auth_headers(admin["token"])
+
+    response = client.get("/reservations/export?format=csv", headers=headers)
     assert response.status_code == 200
-    result = response.json()
-    assert result["success"] is True
+    assert "text/csv" in response.headers["content-type"]
 
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+def test_audit_logs_admin_access(client: TestClient) -> None:
+    admin = login(client, "admin", "admin123")
+    headers = auth_headers(admin["token"])
+    response = client.get("/audit-logs", headers=headers)
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_audit_logs_user_denied(client: TestClient) -> None:
+    user = login(client, "user", "user123")
+    response = client.get("/audit-logs", headers=auth_headers(user["token"]))
+    assert response.status_code == 403
