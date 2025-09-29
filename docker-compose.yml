@@ -1,4 +1,4 @@
-version: '3.8'
+﻿version: '3.8'
 
 services:
   backend:
@@ -9,6 +9,7 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONPATH=/app
+      - SECRET_KEY=${SECRET_KEY:-change-me}
 
   frontend:
     build: ./frontend
