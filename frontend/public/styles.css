@@ -172,3 +172,48 @@ body {
   border-left: 4px solid #0dcaf0;
 }
 
+.metric-card {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  background-color: #ffffff;
+  box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.metric-card span {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.metric-card strong {
+  font-size: 1.4rem;
+  color: var(--ifba-green-dark);
+}
+
+.device-item,
+.reservation-card {
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background-color: #ffffff;
+}
+
+.nav-pills .nav-link.active {
+  background-color: var(--ifba-green);
+}
+
+#usageChart {
+  height: 280px !important;
+}
+
+.table thead th {
+  white-space: nowrap;
+}
+
+.badge {
+  text-transform: capitalize;
+}

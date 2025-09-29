@@ -1,987 +1,750 @@
-﻿
-// IoT Management System - Frontend Application
-class IoTApp {
-  constructor() {
-    this.apiUrl = 'http://localhost:8000';
-    this.token = localStorage.getItem('authToken');
-    this.userRole = localStorage.getItem('userRole');
-    this.username = localStorage.getItem('username');
-    const storedUserId = localStorage.getItem('userId');
-    this.userId = storedUserId ? parseInt(storedUserId, 10) : null;
-
-    this.resourcesCache = [];
-    this.devicesCache = [];
-    this.reservationsCache = [];
-    this.editingResourceId = null;
-    this.editingDeviceId = null;
-
-    this.init();
-  }
-  init() {
-    this.setupEventListeners();
-    this.setupAdminFormListeners();
-
-    if (this.token && this.userRole && this.username && this.userId) {
-      this.showDashboard();
-    } else {
-      this.showLogin();
+(() => {
+  const API_BASE_URL = (() => {
+    const origin = window.location.origin;
+    if (origin.includes(':8080')) {
+      return origin.replace(':8080', ':8000');
     }
-  }
+    return 'http://localhost:8000';
+  })();
 
-  setupEventListeners() {
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) {
-      loginForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        this.handleLogin();
-      });
+  const state = {
+    token: localStorage.getItem('authToken') || null,
+    role: localStorage.getItem('userRole') || null,
+    username: localStorage.getItem('username') || null,
+    userId: localStorage.getItem('userId') ? parseInt(localStorage.getItem('userId'), 10) : null,
+    fullName: localStorage.getItem('fullName') || '',
+    resources: [],
+    devices: [],
+    reservations: [],
+    history: [],
+    stats: null,
+    users: [],
+    audit: [],
+  };
+
+  const dom = {};
+  const headers = (json = true) => {
+    const h = {};
+    if (json) h['Content-Type'] = 'application/json';
+    if (state.token) h.Authorization = `Bearer ${state.token}`;
+    return h;
+  };
+
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${API_BASE_URL}${path}`, options);
+    if (response.status === 401) throw new Error('unauthorized');
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || response.statusText || 'Erro na requisicao');
     }
-
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-      logoutBtn.addEventListener('click', () => this.handleLogout());
-    }
-
-    setInterval(() => {
-      const dashboard = document.getElementById('dashboardPage');
-      if (this.token && dashboard && dashboard.style.display !== 'none') {
-        this.loadDashboardData();
-      }
-    }, 10000);
-  }
-
-  setupAdminFormListeners() {
-    const resourceForm = document.getElementById('resourceForm');
-    if (resourceForm) {
-      resourceForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        this.handleResourceFormSubmit();
-      });
-    }
-
-    const resourceCancel = document.getElementById('resourceFormCancel');
-    if (resourceCancel) {
-      resourceCancel.addEventListener('click', () => this.resetResourceForm());
-    }
-
-    const deviceForm = document.getElementById('deviceForm');
-    if (deviceForm) {
-      deviceForm.addEventListener('submit', (event) => {
-        event.preventDefault();
-        this.handleDeviceFormSubmit();
-      });
-    }
-
-    const deviceCancel = document.getElementById('deviceFormCancel');
-    if (deviceCancel) {
-      deviceCancel.addEventListener('click', () => this.resetDeviceForm());
-    }
-  }
-
-  focusAdminTab(tabName) {
-    const tabButton = document.querySelector(`#${tabName}-tab`);
-    if (!tabButton) {
-      return;
-    }
-    if (window.bootstrap && window.bootstrap.Tab) {
-      const tab = new window.bootstrap.Tab(tabButton);
-      tab.show();
-    } else {
-      tabButton.click();
-    }
-  }
-
-  async handleLogin() {
-    const usernameInput = document.getElementById('username');
-    const passwordInput = document.getElementById('password');
-    const username = usernameInput ? usernameInput.value : '';
-    const password = passwordInput ? passwordInput.value : '';
-
-    try {
-      const response = await fetch(`${this.apiUrl}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        this.showError(error.detail || 'Credenciais invalidas. Tente novamente.');
-        return;
-      }
-
-      const data = await response.json();
-      this.token = data.token;
-      this.userRole = data.role;
-      this.username = data.username;
-      this.userId = data.user_id;
-
-      localStorage.setItem('authToken', this.token);
-      localStorage.setItem('userRole', this.userRole);
-      localStorage.setItem('username', this.username);
-      localStorage.setItem('userId', String(this.userId));
-
-      this.showMessage('Login realizado com sucesso!', 'success');
-      this.showDashboard();
-    } catch (error) {
-      console.error('Login error:', error);
-      this.showError('Erro de conexao. Verifique se o servidor esta rodando.');
-    }
-  }
-
-  handleLogout() {
-    this.token = null;
-    this.userRole = null;
-    this.username = null;
-    this.userId = null;
-
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('username');
-    localStorage.removeItem('userId');
-
-    this.resetResourceForm();
-    this.resetDeviceForm();
-
-    this.showLogin();
-    this.showMessage('Logout realizado com sucesso!', 'success');
-  }
-
-  showLogin() {
-    const loginPage = document.getElementById('loginPage');
-    if (loginPage) loginPage.style.display = 'block';
-    const dashboardPage = document.getElementById('dashboardPage');
-    if (dashboardPage) dashboardPage.style.display = 'none';
-    const userInfo = document.getElementById('userInfo');
-    if (userInfo) userInfo.style.display = 'none';
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) logoutBtn.style.display = 'none';
-
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) loginForm.reset();
-    const loginError = document.getElementById('loginError');
-    if (loginError) loginError.style.display = 'none';
-  }
-
-  showDashboard() {
-    const loginPage = document.getElementById('loginPage');
-    if (loginPage) loginPage.style.display = 'none';
-    const dashboardPage = document.getElementById('dashboardPage');
-    if (dashboardPage) dashboardPage.style.display = 'block';
-    const userInfo = document.getElementById('userInfo');
-    if (userInfo) userInfo.style.display = 'block';
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) logoutBtn.style.display = 'block';
-
-    const usernameDisplay = document.getElementById('usernameDisplay');
-    if (usernameDisplay) usernameDisplay.textContent = this.username || '';
-
-    const loginError = document.getElementById('loginError');
-    if (loginError) loginError.style.display = 'none';
-
-    const userDashboard = document.getElementById('userDashboard');
-    const adminDashboard = document.getElementById('adminDashboard');
-
-    if (this.userRole === 'admin') {
-      if (userDashboard) userDashboard.style.display = 'none';
-      if (adminDashboard) adminDashboard.style.display = 'block';
-    } else {
-      if (userDashboard) userDashboard.style.display = 'block';
-      if (adminDashboard) adminDashboard.style.display = 'none';
-    }
-
-    this.loadDashboardData();
-  }
-  async apiRequest(endpoint, method = 'GET', body = null) {
-    const headers = {};
-    if (body !== null) {
-      headers['Content-Type'] = 'application/json';
-    }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    const options = { method, headers };
-    if (body !== null) {
-      options.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(`${this.apiUrl}${endpoint}`, options);
-
-    if (response.status === 401) {
-      this.handleLogout();
-      throw new Error('Authentication required');
-    }
-
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) return response.json();
     return response;
-  }
+  };
 
-  async loadDashboardData() {
-    try {
-      const tasks = [this.loadResources(), this.loadDevices()];
-      if (this.userRole === 'admin') {
-        tasks.push(this.loadReservations());
-      }
-      await Promise.all(tasks);
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+  const api = {
+    login: (username, password) => request('/login', { method: 'POST', headers: headers(), body: JSON.stringify({ username, password }) }),
+    resources: () => request('/resources', { headers: headers(false) }),
+    resource: (id) => request(`/resources/${id}`, { headers: headers(false) }),
+    createResource: (payload) => request('/resources', { method: 'POST', headers: headers(), body: JSON.stringify(payload) }),
+    updateResource: (id, payload) => request(`/resources/${id}`, { method: 'PUT', headers: headers(), body: JSON.stringify(payload) }),
+    deleteResource: (id) => request(`/resources/${id}`, { method: 'DELETE', headers: headers(false) }),
+    reserve: (id, payload) => request(`/resources/${id}/reserve`, { method: 'POST', headers: headers(), body: JSON.stringify(payload) }),
+    release: (id, payload) => request(`/resources/${id}/release`, { method: 'POST', headers: headers(), body: JSON.stringify(payload) }),
+    devices: () => request('/devices', { headers: headers(false) }),
+    createDevice: (payload) => request('/devices', { method: 'POST', headers: headers(), body: JSON.stringify(payload) }),
+    updateDevice: (id, payload) => request(`/devices/${id}`, { method: 'PUT', headers: headers(), body: JSON.stringify(payload) }),
+    deleteDevice: (id) => request(`/devices/${id}`, { method: 'DELETE', headers: headers(false) }),
+    reservations: (params = {}) => {
+      const query = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.append(key, value);
+      });
+      return request(`/reservations${query.toString() ? `?${query.toString()}` : ''}`, { headers: headers(false) });
+    },
+    stats: () => request('/reservations/stats/summary', { headers: headers(false) }),
+    audit: () => request('/audit-logs', { headers: headers(false) }),
+    users: () => request('/users', { headers: headers(false) }),
+    createUser: (payload) => request('/users', { method: 'POST', headers: headers(), body: JSON.stringify(payload) }),
+    updatePermissions: (id, resourceIds) => request(`/users/${id}/permissions`, { method: 'PUT', headers: headers(), body: JSON.stringify({ resource_ids: resourceIds }) }),
+    deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE', headers: headers(false) }),
+    exportReservations: (format) => request(`/reservations/export?format=${format}`, { headers: headers(false) }),
+  };
+  const formatDate = (value) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const statusBadge = (status) => {
+    switch (status) {
+      case 'active': return 'bg-success';
+      case 'completed': return 'bg-secondary';
+      case 'expired': return 'bg-warning text-dark';
+      case 'cancelled': return 'bg-danger';
+      case 'scheduled': return 'bg-info text-dark';
+      default: return 'bg-light text-dark';
     }
-  }
+  };
 
-  async loadResources() {
-    try {
-      const response = await this.apiRequest('/resources');
-      if (!response.ok) {
-        throw new Error('Failed to load resources');
-      }
-      const resources = await response.json();
-      this.resourcesCache = resources;
-      if (this.userRole === 'admin') {
-        this.renderAdminResources(resources);
-      } else {
-        this.renderUserResources(resources);
-      }
-    } catch (error) {
-      console.error('Error loading resources:', error);
-    }
-  }
+  const cacheDom = () => {
+    dom.loginPage = document.getElementById('loginPage');
+    dom.dashboardPage = document.getElementById('dashboardPage');
+    dom.logoutBtn = document.getElementById('logoutBtn');
+    dom.userInfo = document.getElementById('userInfo');
+    dom.usernameDisplay = document.getElementById('usernameDisplay');
+    dom.userRoleChip = document.getElementById('userRoleChip');
+    dom.resourcesList = document.getElementById('resourcesList');
+    dom.devicesList = document.getElementById('devicesList');
+    dom.activeReservations = document.getElementById('activeReservations');
+    dom.historyTable = document.querySelector('#historyTable tbody');
+    dom.adminResourcesTable = document.querySelector('#adminResourcesTable tbody');
+    dom.adminDevicesTable = document.querySelector('#adminDevicesTable tbody');
+    dom.adminUsersTable = document.querySelector('#adminUsersTable tbody');
+    dom.adminReservationsTable = document.querySelector('#adminReservationsTable tbody');
+    dom.auditTable = document.querySelector('#auditLogsTable tbody');
+    dom.userDashboard = document.getElementById('userDashboard');
+    dom.adminDashboard = document.getElementById('adminDashboard');
+    dom.statsCards = document.getElementById('statsCards');
+    dom.userMetrics = document.getElementById('userMetrics');
+  };
+  const showLogin = () => {
+    dom.loginPage?.classList.remove('d-none');
+    dom.dashboardPage?.classList.add('d-none');
+    dom.logoutBtn?.classList.add('d-none');
+    dom.userInfo?.classList.add('d-none');
+  };
 
-  async loadDevices() {
-    try {
-      const response = await this.apiRequest('/devices');
-      if (!response.ok) {
-        throw new Error('Failed to load devices');
-      }
-      const devices = await response.json();
-      this.devicesCache = devices;
-      if (this.userRole === 'admin') {
-        this.renderAdminDevices(devices);
-      } else {
-        this.renderUserDevices(devices);
-      }
-    } catch (error) {
-      console.error('Error loading devices:', error);
-    }
-  }
-
-  async loadReservations() {
-    if (this.userRole !== 'admin') {
+  const showDashboard = () => {
+    dom.loginPage?.classList.add('d-none');
+    dom.dashboardPage?.classList.remove('d-none');
+    dom.logoutBtn?.classList.remove('d-none');
+    dom.userInfo?.classList.remove('d-none');
+    if (dom.usernameDisplay) dom.usernameDisplay.textContent = state.fullName || state.username || '';
+    if (dom.userRoleChip) dom.userRoleChip.textContent = state.role === 'admin' ? 'Administrador' : 'Usuario';
+    if (state.role === 'admin') dom.adminDashboard?.classList.remove('d-none');
+    else dom.adminDashboard?.classList.add('d-none');
+  };
+  const renderResources = () => {
+    if (!dom.resourcesList) return;
+    const searchValue = (document.getElementById('resourceSearch')?.value || '').toLowerCase();
+    const typeValue = document.getElementById('resourceTypeFilter')?.value || '';
+    const filtered = state.resources.filter((resource) => {
+      const matchesSearch = resource.name.toLowerCase().includes(searchValue) || (resource.description || '').toLowerCase().includes(searchValue);
+      const matchesType = !typeValue || resource.type === typeValue;
+      return matchesSearch && matchesType;
+    });
+    if (!filtered.length) {
+      dom.resourcesList.innerHTML = '<p class="text-muted mb-0">Nenhum recurso encontrado</p>';
       return;
     }
-    try {
-      const response = await this.apiRequest('/reservations');
-      if (!response.ok) {
-        throw new Error('Failed to load reservations');
-      }
-      const reservations = await response.json();
-      this.reservationsCache = reservations;
-      this.renderAdminReservations(reservations);
-    } catch (error) {
-      console.error('Error loading reservations:', error);
-    }
-  }
-  renderUserResources(resources) {
-    const container = document.getElementById('resourcesList');
-    if (!container) {
-      return;
-    }
-
-    if (resources.length === 0) {
-      container.innerHTML = '<p class="text-muted">Nenhum recurso disponivel.</p>';
-      return;
-    }
-
-    container.innerHTML = resources.map((resource) => `
-      <div class="resource-card p-3 ${resource.available ? 'resource-available' : 'resource-reserved'}">
-        <div class="row align-items-center">
-          <div class="col-md-8">
-            <h6 class="mb-1">${resource.name}</h6>
-            <p class="text-muted mb-1">${resource.description}</p>
-            <span class="badge ${resource.available ? 'bg-success' : 'bg-danger'}">
-              ${resource.available ? 'Disponivel' : 'Reservado'}
-            </span>
+    dom.resourcesList.innerHTML = filtered.map((resource) => {
+      const statusClass = resource.status === 'available' ? 'bg-success' : resource.status === 'reserved' ? 'bg-danger' : 'bg-warning';
+      const statusText = resource.status === 'available' ? 'Disponivel' : resource.status === 'reserved' ? 'Reservado' : 'Manutencao';
+      return `
+        <div class="resource-card shadow-sm">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <h5 class="mb-1">${resource.name}</h5>
+              <p class="text-muted small mb-0">${resource.description || 'Sem descricao'}</p>
+            </div>
+            <span class="badge ${statusClass} text-white">${statusText}</span>
           </div>
-          <div class="col-md-4 text-end">
-            ${this.renderResourceActions(resource)}
+          <div class="row small text-muted mb-3">
+            <div class="col">Tipo: <strong>${resource.type || '-'}</strong></div>
+            <div class="col">Localizacao: <strong>${resource.location || '-'}</strong></div>
+            <div class="col">Capacidade: <strong>${resource.capacity || '-'}</strong></div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-success" data-action="reserve" data-id="${resource.id}" ${resource.status !== 'available' ? 'disabled' : ''}>Reservar</button>
+            <button class="btn btn-sm btn-outline-secondary" data-action="release" data-id="${resource.id}" ${resource.status === 'reserved' ? '' : 'disabled'}>Liberar</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    dom.resourcesList.querySelectorAll('button[data-action="reserve"]').forEach((btn) => btn.addEventListener('click', () => promptReservation(parseInt(btn.dataset.id, 10))));
+    dom.resourcesList.querySelectorAll('button[data-action="release"]').forEach((btn) => btn.addEventListener('click', () => releaseResource(parseInt(btn.dataset.id, 10))));
+  };
+
+  const renderDevices = () => {
+    if (!dom.devicesList) return;
+    if (!state.devices.length) {
+      dom.devicesList.innerHTML = '<p class="text-muted mb-0">Nenhum dispositivo cadastrado</p>';
+      return;
+    }
+    dom.devicesList.innerHTML = state.devices.map((device) => `
+      <div class="device-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="mb-1">${device.name}</h6>
+            <p class="text-muted small mb-0">Tipo: ${device.type} | Status: ${device.status}</p>
+            <p class="text-muted small mb-0">Recurso: ${device.resource_id || '-'}</p>
           </div>
         </div>
       </div>
     `).join('');
-  }
+  };
 
-  renderResourceActions(resource) {
-    if (resource.available) {
-      return `<button class="btn btn-success btn-sm" onclick="app.reserveResource(${resource.id})">Reservar</button>`;
-    }
-    if (resource.reserved_by === this.userId) {
-      return `<button class="btn btn-outline-success btn-sm" onclick="app.releaseResource(${resource.id})">Liberar</button>`;
-    }
-    return '<span class="text-muted">Indisponivel</span>';
-  }
-
-  renderUserDevices(devices) {
-    const container = document.getElementById('devicesList');
-    if (!container) {
+  const renderActiveReservations = () => {
+    if (!dom.activeReservations) return;
+    const active = state.reservations.filter((item) => item.status === 'active');
+    if (!active.length) {
+      dom.activeReservations.innerHTML = '<p class="text-muted mb-0">Nenhuma reserva ativa</p>';
       return;
     }
-
-    if (devices.length === 0) {
-      container.innerHTML = '<p class="text-muted">Nenhum dispositivo encontrado.</p>';
-      return;
-    }
-
-    container.innerHTML = `
-      <div class="row">
-        ${devices.map((device) => `
-          <div class="col-md-6 mb-3">
-            <div class="card">
-              <div class="card-body">
-                <h6 class="card-title">${device.name}</h6>
-                <p class="card-text">
-                  <span class="device-status ${device.status}">${this.getStatusText(device)}</span>
-                </p>
-                ${device.value !== undefined && device.value !== null ? `<p class="card-text"><small class="text-muted">Valor: ${device.value}</small></p>` : ''}
-                <div>${this.renderDeviceActions(device)}</div>
-              </div>
-            </div>
+    dom.activeReservations.innerHTML = active.map((item) => `
+      <div class="reservation-card">
+        <div class="d-flex justify-content-between">
+          <div>
+            <strong>${item.resource_name || item.resource_id}</strong>
+            <p class="text-muted small mb-1">Inicio: ${formatDate(item.start_time)} | Expira: ${formatDate(item.expires_at)}</p>
+            <p class="text-muted small mb-0">Usuario: ${item.username || item.user_id}</p>
           </div>
-        `).join('')}
+          <button class="btn btn-sm btn-outline-danger" data-res-id="${item.resource_id}">Encerrar</button>
+        </div>
       </div>
-    `;
-  }
-
-  renderDeviceActions(device) {
-    const actions = [];
-    if (device.type === 'lock') {
-      actions.push(
-        `<button class="btn btn-outline-success btn-sm me-2" onclick="app.executeDeviceAction(${device.id}, 'unlock')">Destrancar</button>`,
-        `<button class="btn btn-outline-secondary btn-sm me-2" onclick="app.executeDeviceAction(${device.id}, 'lock')">Trancar</button>`
-      );
-    } else if (device.type === 'sensor') {
-      actions.push(
-        `<button class="btn btn-outline-success btn-sm me-2" onclick="app.executeDeviceAction(${device.id}, 'read')">Ler sensor</button>`,
-        `<button class="btn btn-outline-secondary btn-sm me-2" onclick="app.executeDeviceAction(${device.id}, 'activate')">Ativar</button>`
-      );
-    }
-    actions.push(`<button class="btn btn-outline-info btn-sm" onclick="app.viewDeviceDetails(${device.id})">Detalhes</button>`);
-    return actions.join('');
-  }
-  renderAdminResources(resources) {
-    const container = document.getElementById('adminResourcesList');
-    if (!container) {
+    `).join('');
+    dom.activeReservations.querySelectorAll('button[data-res-id]').forEach((btn) => btn.addEventListener('click', () => releaseResource(parseInt(btn.dataset.resId, 10))));
+  };
+  const renderReservationTable = (data, tbody, includeActions) => {
+    if (!tbody) return;
+    if (!data.length) {
+      tbody.innerHTML = `<tr><td colspan="${includeActions ? 7 : 6}" class="text-muted text-center">Sem registros</td></tr>`;
       return;
     }
-
-    if (resources.length === 0) {
-      container.innerHTML = '<p class="text-muted mb-0">Nenhum recurso cadastrado.</p>';
-      return;
+    tbody.innerHTML = data.map((item) => {
+      const base = `
+        <td>${item.id}</td>
+        <td>${item.resource_name || item.resource_id}</td>
+        <td>${item.username || item.user_id}</td>
+        <td>${formatDate(item.start_time)}</td>
+        <td>${item.end_time ? formatDate(item.end_time) : '-'}</td>
+        <td><span class="badge ${statusBadge(item.status)}">${item.status}</span></td>
+        <td>${item.notes || '-'}</td>
+      `;
+      if (!includeActions) return `<tr>${base}</tr>`;
+      const action = (item.status === 'active' || item.status === 'scheduled')
+        ? `<button class="btn btn-sm btn-outline-danger" data-force-id="${item.resource_id}">Forcar fim</button>`
+        : '-';
+      return `<tr>${base}<td>${action}</td></tr>`;
+    }).join('');
+    if (includeActions) {
+      tbody.querySelectorAll('button[data-force-id]').forEach((btn) => btn.addEventListener('click', () => forceEndReservation(parseInt(btn.dataset.forceId, 10))));
     }
+  };
 
-    container.innerHTML = `
-      <div class="table-responsive">
-        <table class="table table-striped align-middle">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Nome</th>
-              <th>Descricao</th>
-              <th>Status</th>
-              <th>Reservado por</th>
-              <th>Dispositivo</th>
-              <th>Acoes</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${resources.map((resource) => `
-              <tr>
-                <td>${resource.id}</td>
-                <td>${resource.name}</td>
-                <td>${resource.description}</td>
-                <td>
-                  <span class="badge ${resource.available ? 'bg-success' : 'bg-danger'}">
-                    ${resource.available ? 'Disponivel' : 'Reservado'}
-                  </span>
-                </td>
-                <td>${resource.reserved_by ?? '-'}</td>
-                <td>${resource.device_id ?? '-'}</td>
-                <td>${this.renderAdminResourceActions(resource)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
+  const renderStats = () => {
+    if (!dom.statsCards || !state.stats) return;
+    const { reservations, top_resources: topResources, usage_by_day: usage } = state.stats;
+    dom.statsCards.innerHTML = `
+      <div class="col-md-4"><div class="metric-card"><span>Total de reservas</span><strong>${reservations.total_reservations}</strong></div></div>
+      <div class="col-md-4"><div class="metric-card"><span>Reservas ativas</span><strong>${reservations.active_reservations}</strong></div></div>
+      <div class="col-md-4"><div class="metric-card"><span>Tempo medio (min)</span><strong>${reservations.average_duration_minutes}</strong></div></div>
     `;
-  }
-
-  renderAdminResourceActions(resource) {
-    const actions = [
-      `<button class="btn btn-sm btn-outline-primary me-2" onclick="app.startResourceEdit(${resource.id})">Editar</button>`,
-      `<button class="btn btn-sm btn-outline-danger me-2" onclick="app.deleteResource(${resource.id})">Excluir</button>`
-    ];
-    if (!resource.available) {
-      actions.push(`<button class="btn btn-sm btn-outline-warning" onclick="app.adminReleaseResource(${resource.id})">Forcar liberacao</button>`);
+    const chartContainer = document.getElementById('usageChart');
+    if (!chartContainer) return;
+    const labels = Object.keys(usage || {});
+    const values = labels.map((key) => usage[key]);
+    if (!window.Chart) return;
+    if (window.usageChartInstance) {
+      window.usageChartInstance.data.labels = labels;
+      window.usageChartInstance.data.datasets[0].data = values;
+      window.usageChartInstance.update();
     } else {
-      actions.push('<span class="text-muted">Disponivel</span>');
-    }
-    return actions.join(' ');
-  }
-
-  renderAdminDevices(devices) {
-    const container = document.getElementById('adminDevicesList');
-    if (!container) {
-      return;
-    }
-
-    if (devices.length === 0) {
-      container.innerHTML = '<p class="text-muted mb-0">Nenhum dispositivo cadastrado.</p>';
-      return;
-    }
-
-    container.innerHTML = `
-      <div class="table-responsive">
-        <table class="table table-striped align-middle">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Nome</th>
-              <th>Tipo</th>
-              <th>Status</th>
-              <th>Valor</th>
-              <th>Recurso</th>
-              <th>Acoes</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${devices.map((device) => `
-              <tr>
-                <td>${device.id}</td>
-                <td>${device.name}</td>
-                <td>${device.type}</td>
-                <td><span class="device-status ${device.status}">${this.getStatusText(device)}</span></td>
-                <td>${device.value !== undefined && device.value !== null ? device.value : '-'}</td>
-                <td>${device.resource_id ?? '-'}</td>
-                <td>${this.renderAdminDeviceActions(device)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  renderAdminDeviceActions(device) {
-    return `
-      <button class="btn btn-sm btn-outline-primary me-2" onclick="app.startDeviceEdit(${device.id})">Editar</button>
-      <button class="btn btn-sm btn-outline-danger me-2" onclick="app.deleteDevice(${device.id})">Excluir</button>
-      <button class="btn btn-sm btn-outline-info" onclick="app.viewDeviceDetails(${device.id})">Detalhes</button>
-    `;
-  }
-
-  renderAdminReservations(reservations) {
-    const container = document.getElementById('adminReservationsList');
-    if (!container) {
-      return;
-    }
-
-    if (reservations.length === 0) {
-      container.innerHTML = '<p class="text-muted mb-0">Nenhuma reserva cadastrada.</p>';
-      return;
-    }
-
-    container.innerHTML = `
-      <div class="table-responsive">
-        <table class="table table-striped align-middle">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Recurso</th>
-              <th>Usuario</th>
-              <th>Status</th>
-              <th>Criada em</th>
-              <th>Acoes</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${reservations.map((reservation) => `
-              <tr>
-                <td>${reservation.id}</td>
-                <td>${reservation.resource_name || reservation.resource_id}</td>
-                <td>${reservation.username || reservation.user_id}</td>
-                <td>${this.renderReservationStatusBadge(reservation.status)}</td>
-                <td>${this.formatTimestamp(reservation.timestamp)}</td>
-                <td>${this.renderReservationActions(reservation)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-  renderReservationStatusBadge(status) {
-    const badges = {
-      active: { className: 'bg-warning text-dark', label: 'Ativa' },
-      completed: { className: 'bg-success', label: 'Concluida' },
-      cancelled: { className: 'bg-secondary', label: 'Cancelada' }
-    };
-    const badge = badges[status] || { className: 'bg-light text-dark', label: status };
-    return `<span class="badge ${badge.className}">${badge.label}</span>`;
-  }
-
-  renderReservationActions(reservation) {
-    const actions = [];
-    if (reservation.status !== 'cancelled') {
-      actions.push(`<button class="btn btn-sm btn-outline-warning me-2" onclick="app.updateReservationStatus(${reservation.id}, 'cancelled')">Cancelar</button>`);
-    }
-    if (reservation.status !== 'completed') {
-      actions.push(`<button class="btn btn-sm btn-outline-success me-2" onclick="app.updateReservationStatus(${reservation.id}, 'completed')">Concluir</button>`);
-    }
-    actions.push(`<button class="btn btn-sm btn-outline-danger" onclick="app.deleteReservation(${reservation.id})">Remover</button>`);
-    return actions.join(' ');
-  }
-
-  formatTimestamp(timestamp) {
-    if (!timestamp) {
-      return '-';
-    }
-    try {
-      const date = new Date(timestamp);
-      if (Number.isNaN(date.getTime())) {
-        return timestamp;
-      }
-      return date.toLocaleString();
-    } catch (error) {
-      return timestamp;
-    }
-  }
-  async handleResourceFormSubmit() {
-    const nameInput = document.getElementById('resourceName');
-    const descriptionInput = document.getElementById('resourceDescription');
-    const deviceIdInput = document.getElementById('resourceDeviceId');
-
-    const payload = {
-      name: nameInput ? nameInput.value.trim() : '',
-      description: descriptionInput ? descriptionInput.value.trim() : ''
-    };
-
-    const deviceIdRaw = deviceIdInput ? deviceIdInput.value.trim() : '';
-    if (deviceIdRaw !== '') {
-      payload.device_id = parseInt(deviceIdRaw, 10);
-    } else if (this.editingResourceId !== null) {
-      payload.device_id = null;
-    }
-
-    try {
-      let response;
-      if (this.editingResourceId !== null) {
-        response = await this.apiRequest(`/resources/${this.editingResourceId}`, 'PUT', payload);
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || 'Erro ao atualizar recurso');
-        }
-        this.showMessage('Recurso atualizado com sucesso!', 'success');
-      } else {
-        response = await this.apiRequest('/resources', 'POST', payload);
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || 'Erro ao criar recurso');
-        }
-        this.showMessage('Recurso criado com sucesso!', 'success');
-      }
-
-      this.resetResourceForm();
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error saving resource:', error);
-      this.showError(error.message || 'Erro ao salvar recurso');
-    }
-  }
-
-  startResourceEdit(resourceId) {
-    const resource = this.resourcesCache.find((item) => item.id === resourceId);
-    if (!resource) {
-      return;
-    }
-    this.editingResourceId = resourceId;
-
-    const title = document.getElementById('resourceFormTitle');
-    if (title) {
-      title.textContent = 'Editar recurso';
-    }
-    const submitBtn = document.getElementById('resourceFormSubmit');
-    if (submitBtn) {
-      submitBtn.textContent = 'Salvar recurso';
-    }
-    const cancelBtn = document.getElementById('resourceFormCancel');
-    if (cancelBtn) {
-      cancelBtn.style.display = 'inline-block';
-    }
-
-    const nameInput = document.getElementById('resourceName');
-    if (nameInput) {
-      nameInput.value = resource.name || '';
-    }
-    const descriptionInput = document.getElementById('resourceDescription');
-    if (descriptionInput) {
-      descriptionInput.value = resource.description || '';
-    }
-    const deviceIdInput = document.getElementById('resourceDeviceId');
-    if (deviceIdInput) {
-      deviceIdInput.value = resource.device_id ?? '';
-    }
-
-    this.focusAdminTab('resources');
-  }
-
-  resetResourceForm() {
-    const form = document.getElementById('resourceForm');
-    if (form) {
-      form.reset();
-    }
-    this.editingResourceId = null;
-
-    const title = document.getElementById('resourceFormTitle');
-    if (title) {
-      title.textContent = 'Cadastrar recurso';
-    }
-    const submitBtn = document.getElementById('resourceFormSubmit');
-    if (submitBtn) {
-      submitBtn.textContent = 'Adicionar recurso';
-    }
-    const cancelBtn = document.getElementById('resourceFormCancel');
-    if (cancelBtn) {
-      cancelBtn.style.display = 'none';
-    }
-  }
-
-  async deleteResource(resourceId) {
-    if (!confirm('Deseja excluir este recurso?')) {
-      return;
-    }
-    try {
-      const response = await this.apiRequest(`/resources/${resourceId}`, 'DELETE');
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao excluir recurso');
-      }
-      this.showMessage('Recurso excluido com sucesso!', 'success');
-      if (this.editingResourceId === resourceId) {
-        this.resetResourceForm();
-      }
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error deleting resource:', error);
-      this.showError(error.message || 'Erro ao excluir recurso');
-    }
-  }
-  async handleDeviceFormSubmit() {
-    const nameInput = document.getElementById('deviceName');
-    const typeInput = document.getElementById('deviceType');
-    const statusInput = document.getElementById('deviceStatus');
-    const resourceIdInput = document.getElementById('deviceResourceId');
-    const valueInput = document.getElementById('deviceValue');
-
-    const payload = {
-      name: nameInput ? nameInput.value.trim() : '',
-      type: typeInput ? typeInput.value : 'lock',
-      status: statusInput ? statusInput.value : 'inactive'
-    };
-
-    const resourceIdRaw = resourceIdInput ? resourceIdInput.value.trim() : '';
-    if (resourceIdRaw !== '') {
-      payload.resource_id = parseInt(resourceIdRaw, 10);
-    } else if (this.editingDeviceId !== null) {
-      payload.resource_id = null;
-    }
-
-    const valueRaw = valueInput ? valueInput.value.trim() : '';
-    if (valueRaw !== '') {
-      payload.value = parseFloat(valueRaw);
-    } else if (this.editingDeviceId !== null) {
-      payload.value = null;
-    }
-
-    try {
-      let response;
-      if (this.editingDeviceId !== null) {
-        response = await this.apiRequest(`/devices/${this.editingDeviceId}`, 'PUT', payload);
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || 'Erro ao atualizar dispositivo');
-        }
-        this.showMessage('Dispositivo atualizado com sucesso!', 'success');
-      } else {
-        response = await this.apiRequest('/devices', 'POST', payload);
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          throw new Error(error.detail || 'Erro ao criar dispositivo');
-        }
-        this.showMessage('Dispositivo criado com sucesso!', 'success');
-      }
-
-      this.resetDeviceForm();
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error saving device:', error);
-      this.showError(error.message || 'Erro ao salvar dispositivo');
-    }
-  }
-
-  startDeviceEdit(deviceId) {
-    const device = this.devicesCache.find((item) => item.id === deviceId);
-    if (!device) {
-      return;
-    }
-
-    this.editingDeviceId = deviceId;
-
-    const title = document.getElementById('deviceFormTitle');
-    if (title) {
-      title.textContent = 'Editar dispositivo';
-    }
-    const submitBtn = document.getElementById('deviceFormSubmit');
-    if (submitBtn) {
-      submitBtn.textContent = 'Salvar dispositivo';
-    }
-    const cancelBtn = document.getElementById('deviceFormCancel');
-    if (cancelBtn) {
-      cancelBtn.style.display = 'inline-block';
-    }
-
-    const nameInput = document.getElementById('deviceName');
-    if (nameInput) {
-      nameInput.value = device.name || '';
-    }
-    const typeInput = document.getElementById('deviceType');
-    if (typeInput) {
-      typeInput.value = device.type || 'lock';
-    }
-    const statusInput = document.getElementById('deviceStatus');
-    if (statusInput) {
-      statusInput.value = device.status || 'inactive';
-    }
-    const resourceIdInput = document.getElementById('deviceResourceId');
-    if (resourceIdInput) {
-      resourceIdInput.value = device.resource_id ?? '';
-    }
-    const valueInput = document.getElementById('deviceValue');
-    if (valueInput) {
-      valueInput.value = device.value ?? '';
-    }
-
-    this.focusAdminTab('devices');
-  }
-
-  resetDeviceForm() {
-    const form = document.getElementById('deviceForm');
-    if (form) {
-      form.reset();
-    }
-    this.editingDeviceId = null;
-
-    const title = document.getElementById('deviceFormTitle');
-    if (title) {
-      title.textContent = 'Cadastrar dispositivo';
-    }
-    const submitBtn = document.getElementById('deviceFormSubmit');
-    if (submitBtn) {
-      submitBtn.textContent = 'Adicionar dispositivo';
-    }
-    const cancelBtn = document.getElementById('deviceFormCancel');
-    if (cancelBtn) {
-      cancelBtn.style.display = 'none';
-    }
-  }
-
-  async deleteDevice(deviceId) {
-    if (!confirm('Deseja excluir este dispositivo?')) {
-      return;
-    }
-    try {
-      const response = await this.apiRequest(`/devices/${deviceId}`, 'DELETE');
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao excluir dispositivo');
-      }
-      this.showMessage('Dispositivo excluido com sucesso!', 'success');
-      if (this.editingDeviceId === deviceId) {
-        this.resetDeviceForm();
-      }
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error deleting device:', error);
-      this.showError(error.message || 'Erro ao excluir dispositivo');
-    }
-  }
-  async reserveResource(resourceId) {
-    try {
-      const response = await this.apiRequest(`/resources/${resourceId}/reserve`, 'POST', {
-        user_id: this.userId
+      window.usageChartInstance = new Chart(chartContainer, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Reservas por dia',
+            data: values,
+            borderColor: '#198754',
+            backgroundColor: 'rgba(25,135,84,0.2)',
+            tension: 0.3,
+            fill: true,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+        },
       });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao reservar recurso');
-      }
-      this.showMessage('Recurso reservado com sucesso!', 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error reserving resource:', error);
-      this.showError(error.message || 'Erro ao reservar recurso');
     }
-  }
+  };
 
-  async releaseResource(resourceId) {
-    try {
-      const response = await this.apiRequest(`/resources/${resourceId}/release`, 'POST');
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao liberar recurso');
-      }
-      this.showMessage('Recurso liberado com sucesso!', 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error releasing resource:', error);
-      this.showError(error.message || 'Erro ao liberar recurso');
-    }
-  }
-
-  async adminReleaseResource(resourceId) {
-    try {
-      const resource = this.resourcesCache.find((item) => item.id === resourceId);
-      if (resource && resource.available) {
-        this.showMessage('Recurso ja esta disponivel.', 'info');
-        return;
-      }
-      const response = await this.apiRequest(`/resources/${resourceId}/release`, 'POST');
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao liberar recurso');
-      }
-      this.showMessage('Recurso liberado pelo administrador.', 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error releasing resource:', error);
-      this.showError(error.message || 'Erro ao liberar recurso');
-    }
-  }
-
-  async executeDeviceAction(deviceId, action) {
-    try {
-      const response = await this.apiRequest(`/devices/${deviceId}/action`, 'POST', { action });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao executar acao');
-      }
-      const result = await response.json();
-      this.showMessage(result.message || 'Acao executada com sucesso!', 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error executing device action:', error);
-      this.showError(error.message || 'Erro ao executar acao');
-    }
-  }
-
-  async viewDeviceDetails(deviceId) {
-    try {
-      const response = await this.apiRequest(`/devices/${deviceId}`);
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao obter detalhes do dispositivo');
-      }
-      const device = await response.json();
-      const info = [
-        `<strong>${device.name}</strong>`,
-        `Tipo: ${device.type}`,
-        `Status: ${this.getStatusText(device)}`
-      ];
-      if (device.value !== undefined && device.value !== null) {
-        info.push(`Valor: ${device.value}`);
-      }
-      if (device.resource_id !== undefined && device.resource_id !== null) {
-        info.push(`Recurso vinculado: ${device.resource_id}`);
-      }
-      this.showMessage(info.join('<br>'), 'info');
-    } catch (error) {
-      console.error('Error fetching device details:', error);
-      this.showError(error.message || 'Erro ao obter detalhes do dispositivo');
-    }
-  }
-
-  async updateReservationStatus(reservationId, status) {
-    try {
-      const response = await this.apiRequest(`/reservations/${reservationId}`, 'PATCH', { status });
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao atualizar reserva');
-      }
-      await response.json();
-      const message = status === 'cancelled'
-        ? 'Reserva cancelada com sucesso!'
-        : 'Reserva atualizada com sucesso!';
-      this.showMessage(message, 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error updating reservation:', error);
-      this.showError(error.message || 'Erro ao atualizar reserva');
-    }
-  }
-
-  async deleteReservation(reservationId) {
-    if (!confirm('Deseja remover esta reserva?')) {
-      return;
-    }
-    try {
-      const response = await this.apiRequest(`/reservations/${reservationId}`, 'DELETE');
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || 'Erro ao remover reserva');
-      }
-      this.showMessage('Reserva removida com sucesso!', 'success');
-      await this.loadDashboardData();
-    } catch (error) {
-      console.error('Error deleting reservation:', error);
-      this.showError(error.message || 'Erro ao remover reserva');
-    }
-  }
-  getStatusText(device) {
-    const statusMap = {
-      active: 'Ativo',
-      inactive: 'Inativo',
-      locked: 'Trancado',
-      unlocked: 'Destrancado'
-    };
-    return statusMap[device.status] || device.status;
-  }
-
-  showMessage(message, type = 'success') {
-    const container = document.getElementById('messageContainer');
-    if (!container) {
-      return;
-    }
-
-    const toast = document.createElement('div');
-    toast.className = `toast show toast-${type}`;
-    toast.innerHTML = `
-      <div class="toast-body">
-        ${message}
-        <button type="button" class="btn-close float-end" data-bs-dismiss="toast"></button>
-      </div>
+  const renderMetrics = () => {
+    if (!dom.userMetrics) return;
+    const total = state.resources.length;
+    const available = state.resources.filter((item) => item.status === 'available').length;
+    const reserved = state.resources.filter((item) => item.status === 'reserved').length;
+    dom.userMetrics.innerHTML = `
+      <div class="col-md-4"><div class="metric-card"><span>Total de recursos</span><strong>${total}</strong></div></div>
+      <div class="col-md-4"><div class="metric-card"><span>Disponiveis</span><strong>${available}</strong></div></div>
+      <div class="col-md-4"><div class="metric-card"><span>Reservados</span><strong>${reserved}</strong></div></div>
     `;
-
-    container.appendChild(toast);
-
-    setTimeout(() => {
-      toast.remove();
-    }, 5000);
-  }
-
-  showError(message) {
-    this.showMessage(message, 'error');
-    const errorDiv = document.getElementById('loginError');
-    if (errorDiv) {
-      errorDiv.textContent = message;
-      errorDiv.style.display = 'block';
+  };
+  const renderAdminTables = () => {
+    if (dom.adminResourcesTable) {
+      dom.adminResourcesTable.innerHTML = state.resources.map((resource) => `
+        <tr>
+          <td>${resource.id}</td>
+          <td>${resource.name}</td>
+          <td>${resource.status}</td>
+          <td>${resource.type || '-'}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-2" data-edit-resource="${resource.id}">Editar</button>
+            <button class="btn btn-sm btn-outline-danger" data-delete-resource="${resource.id}">Remover</button>
+          </td>
+        </tr>
+      `).join('');
+      dom.adminResourcesTable.querySelectorAll('button[data-delete-resource]').forEach((btn) => btn.addEventListener('click', () => deleteResource(parseInt(btn.dataset.deleteResource, 10))));
+      dom.adminResourcesTable.querySelectorAll('button[data-edit-resource]').forEach((btn) => btn.addEventListener('click', () => editResource(parseInt(btn.dataset.editResource, 10))));
     }
-  }
-}
 
-const app = new IoTApp();
+    if (dom.adminDevicesTable) {
+      dom.adminDevicesTable.innerHTML = state.devices.map((device) => `
+        <tr>
+          <td>${device.id}</td>
+          <td>${device.name}</td>
+          <td>${device.status}</td>
+          <td>${device.resource_id || '-'}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-danger" data-delete-device="${device.id}">Remover</button>
+          </td>
+        </tr>
+      `).join('');
+      dom.adminDevicesTable.querySelectorAll('button[data-delete-device]').forEach((btn) => btn.addEventListener('click', () => deleteDevice(parseInt(btn.dataset.deleteDevice, 10))));
+    }
+
+    if (dom.adminUsersTable) {
+      dom.adminUsersTable.innerHTML = state.users.map((user) => `
+        <tr>
+          <td>${user.id}</td>
+          <td>${user.username}</td>
+          <td>${user.role}</td>
+          <td>${user.is_active ? 'Ativo' : 'Inativo'}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-secondary me-2" data-permission-user="${user.id}">Permissoes</button>
+            <button class="btn btn-sm btn-outline-danger" data-delete-user="${user.id}">Remover</button>
+          </td>
+        </tr>
+      `).join('');
+      dom.adminUsersTable.querySelectorAll('button[data-delete-user]').forEach((btn) => btn.addEventListener('click', () => deleteUser(parseInt(btn.dataset.deleteUser, 10))));
+      dom.adminUsersTable.querySelectorAll('button[data-permission-user]').forEach((btn) => btn.addEventListener('click', () => updatePermissionsPrompt(parseInt(btn.dataset.permissionUser, 10))));
+    }
+
+    if (dom.auditTable) {
+      dom.auditTable.innerHTML = state.audit.map((log) => `
+        <tr>
+          <td>${formatDate(log.timestamp)}</td>
+          <td>${log.user_id || '-'}</td>
+          <td>${log.action}</td>
+          <td>${log.resource_id || '-'}</td>
+          <td>${log.device_id || '-'}</td>
+          <td>${log.result}</td>
+        </tr>
+      `).join('');
+      if (!state.audit.length) {
+        dom.auditTable.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Nenhum log registrado</td></tr>';
+      }
+    }
+  };
+  const promptReservation = async (resourceId) => {
+    const durationInput = prompt('Duracao em minutos', '30');
+    if (!durationInput) return;
+    const duration = parseInt(durationInput, 10);
+    if (Number.isNaN(duration) || duration <= 0) {
+      alert('Duracao invalida');
+      return;
+    }
+    try {
+      await api.reserve(resourceId, { duration_minutes: duration });
+      await Promise.all([loadResources(), loadActiveReservations(), loadHistory(), loadStats()]);
+    } catch (error) {
+      alert(`Falha ao reservar: ${error.message}`);
+    }
+  };
+
+  const releaseResource = async (resourceId) => {
+    try {
+      await api.release(resourceId, { notes: 'Liberado pelo usuario' });
+      await Promise.all([loadResources(), loadActiveReservations(), loadHistory(), loadStats()]);
+    } catch (error) {
+      alert(`Falha ao liberar: ${error.message}`);
+    }
+  };
+
+  const deleteResource = async (resourceId) => {
+    if (!confirm('Remover recurso?')) return;
+    try {
+      await api.deleteResource(resourceId);
+      await loadResources();
+    } catch (error) {
+      alert(`Falha ao remover recurso: ${error.message}`);
+    }
+  };
+
+  const editResource = (resourceId) => {
+    const resource = state.resources.find((item) => item.id === resourceId);
+    if (!resource) return;
+    const newName = prompt('Nome do recurso', resource.name);
+    if (!newName) return;
+    const capacity = prompt('Capacidade', resource.capacity || '');
+    api.updateResource(resourceId, {
+      name: newName,
+      capacity: capacity ? parseInt(capacity, 10) : null,
+    }).then(loadResources).catch((error) => alert(`Falha ao atualizar recurso: ${error.message}`));
+  };
+
+  const deleteDevice = async (deviceId) => {
+    if (!confirm('Remover dispositivo?')) return;
+    try {
+      await api.deleteDevice(deviceId);
+      await loadDevices();
+    } catch (error) {
+      alert(`Falha ao remover dispositivo: ${error.message}`);
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    if (!confirm('Remover usuario?')) return;
+    try {
+      await api.deleteUser(userId);
+      await loadUsers();
+    } catch (error) {
+      alert(`Falha ao remover usuario: ${error.message}`);
+    }
+  };
+
+  const updatePermissionsPrompt = async (userId) => {
+    const user = state.users.find((item) => item.id === userId);
+    if (!user) return;
+    const current = (user.permitted_resource_ids || []).join(',');
+    const input = prompt('IDs de recursos permitidos separados por virgula', current);
+    if (input === null) return;
+    const ids = input.split(',').map((value) => parseInt(value.trim(), 10)).filter((value) => !Number.isNaN(value));
+    try {
+      await api.updatePermissions(userId, ids);
+      await loadUsers();
+    } catch (error) {
+      alert(`Falha ao atualizar permissoes: ${error.message}`);
+    }
+  };
+
+  const forceEndReservation = async (resourceId) => {
+    try {
+      await api.release(resourceId, { notes: 'Liberado pelo admin', force: true });
+      await Promise.all([loadResources(), loadActiveReservations(), loadHistory(), loadAdminReservations(), loadStats()]);
+    } catch (error) {
+      alert(`Falha ao encerrar reserva: ${error.message}`);
+    }
+  };
+
+  const exportReservations = async (format) => {
+    try {
+      const response = await api.exportReservations(format);
+      if (response instanceof Response) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = format === 'pdf' ? 'reservas.pdf' : 'reservas.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      alert(`Falha ao exportar: ${error.message}`);
+    }
+  };
+  const loadResources = async () => {
+    try {
+      const resources = await api.resources();
+      state.resources = resources;
+      renderResources();
+      renderMetrics();
+      renderAdminTables();
+      populateTypeFilter();
+    } catch (error) {
+      console.error('Falha ao carregar recursos', error);
+    }
+  };
+
+  const loadDevices = async () => {
+    try {
+      state.devices = await api.devices();
+      renderDevices();
+      renderAdminTables();
+    } catch (error) {
+      console.error('Falha ao carregar dispositivos', error);
+    }
+  };
+
+  const loadActiveReservations = async () => {
+    try {
+      const params = state.role === 'admin' ? { status: 'active' } : { status: 'active', user_id: state.userId };
+      state.reservations = await api.reservations(params);
+      renderActiveReservations();
+    } catch (error) {
+      console.error('Falha ao carregar reservas', error);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const start = document.getElementById('historyStart')?.value;
+      const end = document.getElementById('historyEnd')?.value;
+      const params = {};
+      if (start) params.start_from = `${start}T00:00:00`;
+      if (end) params.start_to = `${end}T23:59:59`;
+      if (state.role !== 'admin') params.user_id = state.userId;
+      const history = await api.reservations(params);
+      state.history = history;
+      renderReservationTable(history, dom.historyTable, false);
+    } catch (error) {
+      console.error('Falha ao carregar historico', error);
+    }
+  };
+
+  const loadAdminReservations = async () => {
+    if (state.role !== 'admin') return;
+    try {
+      const statusValue = document.getElementById('adminReservationStatus')?.value;
+      const params = {};
+      if (statusValue) params.status = statusValue;
+      const reservations = await api.reservations(params);
+      renderReservationTable(reservations, dom.adminReservationsTable, true);
+    } catch (error) {
+      console.error('Falha ao carregar reservas admin', error);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      state.stats = await api.stats();
+      renderStats();
+    } catch (error) {
+      console.error('Falha ao carregar estatisticas', error);
+    }
+  };
+
+  const loadUsers = async () => {
+    if (state.role !== 'admin') return;
+    try {
+      state.users = await api.users();
+      renderAdminTables();
+    } catch (error) {
+      console.error('Falha ao carregar usuarios', error);
+    }
+  };
+
+  const loadAudit = async () => {
+    if (state.role !== 'admin') return;
+    try {
+      state.audit = await api.audit();
+      renderAdminTables();
+    } catch (error) {
+      console.error('Falha ao carregar auditoria', error);
+    }
+  };
+  const populateTypeFilter = () => {
+    const select = document.getElementById('resourceTypeFilter');
+    if (!select) return;
+    const types = Array.from(new Set(state.resources.map((item) => item.type || '')));
+    select.innerHTML = ['<option value="">Todos</option>', ...types.filter(Boolean).map((type) => `<option value="${type}">${type}</option>`)].join('');
+  };
+  const setupEventListeners = () => {
+    document.getElementById('loginForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const username = document.getElementById('username')?.value.trim();
+      const password = document.getElementById('password')?.value.trim();
+      const loginError = document.getElementById('loginError');
+      if (!username || !password) return;
+      try {
+        const data = await api.login(username, password);
+        state.token = data.token;
+        state.role = data.role;
+        state.username = data.username;
+        state.userId = data.user_id;
+        state.fullName = data.full_name || '';
+        localStorage.setItem('authToken', data.token);
+        localStorage.setItem('userRole', data.role);
+        localStorage.setItem('username', data.username);
+        localStorage.setItem('userId', String(data.user_id));
+        localStorage.setItem('fullName', state.fullName);
+        dom.usernameDisplay.textContent = state.fullName || state.username || '';
+        dom.userRoleChip.textContent = state.role === 'admin' ? 'Administrador' : 'Usuario';
+        showDashboard();
+        await loadAll();
+        connectWebSocket();
+        loginError?.classList.add('d-none');
+      } catch (error) {
+        if (loginError) {
+          loginError.textContent = error.message || 'Falha no login';
+          loginError.classList.remove('d-none');
+        }
+      }
+    });
+
+    dom.logoutBtn?.addEventListener('click', () => {
+      localStorage.clear();
+      state.token = null;
+      state.role = null;
+      state.username = null;
+      state.userId = null;
+      showLogin();
+    });
+
+    document.getElementById('resourceForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = document.getElementById('resourceName')?.value.trim();
+      if (!name) return;
+      const payload = {
+        name,
+        description: document.getElementById('resourceDescription')?.value.trim(),
+        type: document.getElementById('resourceType')?.value.trim(),
+        location: document.getElementById('resourceLocation')?.value.trim(),
+        capacity: document.getElementById('resourceCapacity')?.value ? parseInt(document.getElementById('resourceCapacity').value, 10) : null,
+      };
+      try {
+        await api.createResource(payload);
+        ['resourceName','resourceDescription','resourceType','resourceLocation','resourceCapacity'].forEach((id) => {
+          const input = document.getElementById(id);
+          if (input) input.value = '';
+        });
+        await loadResources();
+      } catch (error) {
+        alert(`Falha ao criar recurso: ${error.message}`);
+      }
+    });
+
+    document.getElementById('deviceForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const name = document.getElementById('deviceName')?.value.trim();
+      if (!name) return;
+      try {
+        await api.createDevice({
+          name,
+          type: document.getElementById('deviceType')?.value || 'other',
+          resource_id: document.getElementById('deviceResourceId')?.value ? parseInt(document.getElementById('deviceResourceId').value, 10) : null,
+          status: 'inactive',
+        });
+        ['deviceName','deviceResourceId'].forEach((id) => { const input = document.getElementById(id); if (input) input.value = ''; });
+        await loadDevices();
+      } catch (error) {
+        alert(`Falha ao criar dispositivo: ${error.message}`);
+      }
+    });
+
+    document.getElementById('userForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const username = document.getElementById('userUsername')?.value.trim();
+      const password = document.getElementById('userPassword')?.value;
+      if (!username || !password) return;
+      const allowed = (document.getElementById('userResourceIds')?.value || '')
+        .split(',')
+        .map((value) => parseInt(value.trim(), 10))
+        .filter((value) => !Number.isNaN(value));
+      try {
+        await api.createUser({
+          username,
+          password,
+          full_name: document.getElementById('userFullName')?.value.trim(),
+          email: document.getElementById('userEmail')?.value.trim(),
+          role: document.getElementById('userRoleSelect')?.value || 'user',
+          allowed_resource_ids: allowed,
+        });
+        ['userUsername','userPassword','userFullName','userEmail','userResourceIds'].forEach((id) => { const input = document.getElementById(id); if (input) input.value = ''; });
+        await loadUsers();
+      } catch (error) {
+        alert(`Falha ao criar usuario: ${error.message}`);
+      }
+    });
+
+    document.getElementById('historyFilterBtn')?.addEventListener('click', loadHistory);
+    document.getElementById('refreshStatsBtn')?.addEventListener('click', loadStats);
+    document.getElementById('adminReservationFilterBtn')?.addEventListener('click', loadAdminReservations);
+    document.getElementById('refreshAuditBtn')?.addEventListener('click', loadAudit);
+    document.getElementById('exportCsvBtn')?.addEventListener('click', () => exportReservations('csv'));
+    document.getElementById('exportPdfBtn')?.addEventListener('click', () => exportReservations('pdf'));
+    document.getElementById('resourceSearch')?.addEventListener('input', renderResources);
+    document.getElementById('resourceTypeFilter')?.addEventListener('change', renderResources);
+  };
+  let ws = null;
+  const connectWebSocket = () => {
+    if (ws) ws.close();
+    ws = new WebSocket(API_BASE_URL.replace('http', 'ws') + '/ws/updates');
+    ws.onmessage = async (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!data || !data.type) return;
+        switch (data.type) {
+          case 'resource.updated':
+          case 'resource.created':
+            await syncResource(data.resourceId);
+            break;
+          case 'resource.deleted':
+            state.resources = state.resources.filter((item) => item.id !== data.resourceId);
+            renderResources();
+            renderMetrics();
+            renderAdminTables();
+            break;
+          case 'device.updated':
+          case 'device.created':
+          case 'device.deleted':
+            await loadDevices();
+            break;
+          case 'reservation.created':
+          case 'reservation.updated':
+            await Promise.all([loadResources(), loadActiveReservations(), loadHistory(), loadStats()]);
+            if (state.role === 'admin') await loadAdminReservations();
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error('Mensagem websocket invalida', error);
+      }
+    };
+    ws.onclose = () => {
+      if (state.token) setTimeout(connectWebSocket, 5000);
+    };
+  };
+
+  const syncResource = async (resourceId) => {
+    if (!resourceId) return;
+    try {
+      const resource = await api.resource(resourceId);
+      const index = state.resources.findIndex((item) => item.id === resourceId);
+      if (index >= 0) state.resources[index] = resource;
+      else state.resources.push(resource);
+      renderResources();
+      renderMetrics();
+      renderAdminTables();
+    } catch (error) {
+      console.error('Falha ao sincronizar recurso', error);
+    }
+  };
+
+  const loadAll = async () => {
+    await Promise.all([loadResources(), loadDevices(), loadActiveReservations(), loadHistory(), loadStats()]);
+    if (state.role === 'admin') {
+      await Promise.all([loadUsers(), loadAdminReservations(), loadAudit()]);
+    }
+  };
+
+  const init = async () => {
+    cacheDom();
+    setupEventListeners();
+    if (state.token && state.role && state.userId) {
+      showDashboard();
+      await loadAll();
+      connectWebSocket();
+    } else {
+      showLogin();
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', init);
+})();

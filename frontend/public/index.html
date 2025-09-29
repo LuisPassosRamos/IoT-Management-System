@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -13,20 +13,20 @@
       <a class="navbar-brand" href="#" id="navbarBrand">
         <strong>Sistema IoT - IFBA</strong>
       </a>
-      <div class="navbar-nav ms-auto">
-        <div id="userInfo" class="navbar-text text-white me-3" style="display: none;">
+      <div class="navbar-nav ms-auto align-items-center">
+        <span id="userInfo" class="navbar-text text-white me-3 d-none">
           Bem-vindo, <span id="usernameDisplay"></span>
-        </div>
-        <button id="logoutBtn" class="btn btn-outline-light btn-sm" style="display: none;">
+        </span>
+        <button id="logoutBtn" class="btn btn-outline-light btn-sm d-none">
           Sair
         </button>
       </div>
     </div>
   </nav>
 
-  <div class="container mt-4">
+  <div class="container py-4">
     <div id="loginPage" class="row justify-content-center">
-      <div class="col-md-6">
+      <div class="col-lg-5 col-md-6">
         <div class="card shadow">
           <div class="card-header bg-success text-white text-center">
             <h4 class="mb-0">Login - Sistema IoT</h4>
@@ -45,8 +45,7 @@
                 <button type="submit" class="btn btn-success">Entrar</button>
               </div>
             </form>
-            <div id="loginError" class="alert alert-danger mt-3" style="display: none;"></div>
-
+            <div id="loginError" class="alert alert-danger mt-3 d-none"></div>
             <div class="mt-4 p-3 bg-light border rounded">
               <h6>Credenciais de teste</h6>
               <p class="mb-1"><strong>Admin:</strong> admin / admin123</p>
@@ -57,163 +56,387 @@
       </div>
     </div>
 
-    <div id="dashboardPage" style="display: none;">
-      <div id="userDashboard">
-        <div class="row mb-4">
+    <div id="dashboardPage" class="d-none">
+      <section id="userDashboard" class="mb-5">
+        <div class="row align-items-center mb-3">
           <div class="col">
-            <h2 class="text-success">Dashboard do usuario</h2>
-            <p class="text-muted">Gerencie recursos compartilhados e monitore dispositivos IoT</p>
+            <h2 class="text-success mb-1">Meu painel</h2>
+            <p class="text-muted mb-0">Monitore recursos, reservas e dispositivos autorizados</p>
+          </div>
+          <div class="col-auto">
+            <span class="badge bg-info text-dark" id="userRoleChip"></span>
           </div>
         </div>
 
-        <div class="row mb-4">
-          <div class="col">
-            <div class="card">
-              <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Recursos compartilhados</h5>
+        <ul class="nav nav-pills mb-3" id="userTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-overview" data-bs-toggle="tab" data-bs-target="#user-overview" type="button" role="tab">Visao geral</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-history" data-bs-toggle="tab" data-bs-target="#user-history" type="button" role="tab">Historico</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-stats" data-bs-toggle="tab" data-bs-target="#user-stats" type="button" role="tab">Estatisticas</button>
+          </li>
+        </ul>
+
+        <div class="tab-content" id="userTabsContent">
+          <div class="tab-pane fade show active" id="user-overview" role="tabpanel">
+            <div class="row" id="userMetrics"></div>
+            <div class="card shadow-sm mb-4">
+              <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recursos disponiveis</h5>
+                <div class="d-flex gap-2">
+                  <input type="text" id="resourceSearch" class="form-control form-control-sm" placeholder="Filtrar recursos">
+                  <select id="resourceTypeFilter" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                  </select>
+                </div>
+              </div>
+              <div class="card-body" id="resourcesList"></div>
+            </div>
+
+            <div class="row">
+              <div class="col-lg-6 mb-4">
+                <div class="card shadow-sm h-100">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Reservas ativas</h5>
+                  </div>
+                  <div class="card-body" id="activeReservations"></div>
+                </div>
+              </div>
+              <div class="col-lg-6 mb-4">
+                <div class="card shadow-sm h-100">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Dispositivos monitorados</h5>
+                  </div>
+                  <div class="card-body" id="devicesList"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="user-history" role="tabpanel">
+            <div class="card shadow-sm">
+              <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Historico de reservas</h5>
+                <div class="d-flex gap-2">
+                  <input type="date" id="historyStart" class="form-control form-control-sm">
+                  <input type="date" id="historyEnd" class="form-control form-control-sm">
+                  <button class="btn btn-light btn-sm" id="historyFilterBtn">Filtrar</button>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0" id="historyTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>ID</th>
+                      <th>Recurso</th>
+                      <th>Usuario</th>
+                      <th>Inicio</th>
+                      <th>Fim</th>
+                      <th>Status</th>
+                      <th>Notas</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="user-stats" role="tabpanel">
+            <div class="row g-3 mb-3" id="statsCards"></div>
+            <div class="card shadow-sm">
+              <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Uso por dia</h5>
+                <button class="btn btn-light btn-sm" id="refreshStatsBtn">Atualizar</button>
               </div>
               <div class="card-body">
-                <div id="resourcesList"></div>
+                <canvas id="usageChart" height="120"></canvas>
               </div>
             </div>
           </div>
         </div>
+      </section>
 
-        <div class="row">
+      <section id="adminDashboard" class="d-none">
+        <div class="row mb-3">
           <div class="col">
-            <div class="card">
-              <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Estado dos dispositivos IoT</h5>
-              </div>
-              <div class="card-body">
-                <div id="devicesList"></div>
-              </div>
-            </div>
+            <h2 class="text-success mb-0">Painel administrativo</h2>
+            <p class="text-muted">Gerencie recursos, dispositivos, usuarios e auditoria</p>
           </div>
-        </div>
-      </div>
-
-      <div id="adminDashboard" style="display: none;">
-        <div class="row mb-4">
-          <div class="col">
-            <h2 class="text-success">Painel administrativo</h2>
-            <p class="text-muted">Gerencie todos os recursos, dispositivos e reservas do sistema</p>
+          <div class="col-auto d-flex gap-2">
+            <button class="btn btn-outline-success btn-sm" id="exportCsvBtn">Exportar CSV</button>
+            <button class="btn btn-outline-success btn-sm" id="exportPdfBtn">Exportar PDF</button>
           </div>
         </div>
 
         <ul class="nav nav-tabs" id="adminTabs" role="tablist">
           <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="resources-tab" data-bs-toggle="tab" data-bs-target="#resources" type="button" role="tab">
-              Recursos
-            </button>
+            <button class="nav-link active" id="admin-resources-tab" data-bs-toggle="tab" data-bs-target="#admin-resources" type="button" role="tab">Recursos</button>
           </li>
           <li class="nav-item" role="presentation">
-            <button class="nav-link" id="devices-tab" data-bs-toggle="tab" data-bs-target="#devices" type="button" role="tab">
-              Dispositivos
-            </button>
+            <button class="nav-link" id="admin-devices-tab" data-bs-toggle="tab" data-bs-target="#admin-devices" type="button" role="tab">Dispositivos</button>
           </li>
           <li class="nav-item" role="presentation">
-            <button class="nav-link" id="reservations-tab" data-bs-toggle="tab" data-bs-target="#reservations" type="button" role="tab">
-              Reservas
-            </button>
+            <button class="nav-link" id="admin-users-tab" data-bs-toggle="tab" data-bs-target="#admin-users" type="button" role="tab">Usuarios</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="admin-reservations-tab" data-bs-toggle="tab" data-bs-target="#admin-reservations" type="button" role="tab">Reservas</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="admin-audit-tab" data-bs-toggle="tab" data-bs-target="#admin-audit" type="button" role="tab">Auditoria</button>
           </li>
         </ul>
 
-        <div class="tab-content" id="adminTabContent">
-          <div class="tab-pane fade show active" id="resources" role="tabpanel">
-            <div class="card">
-              <div class="card-body">
-                <div class="mb-4">
-                  <h5 class="card-title mb-3" id="resourceFormTitle">Cadastrar recurso</h5>
-                  <form id="resourceForm" class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                      <label for="resourceName" class="form-label">Nome</label>
-                      <input type="text" class="form-control" id="resourceName" required>
-                    </div>
-                    <div class="col-md-4">
-                      <label for="resourceDescription" class="form-label">Descricao</label>
-                      <input type="text" class="form-control" id="resourceDescription" required>
-                    </div>
-                    <div class="col-md-2">
-                      <label for="resourceDeviceId" class="form-label">ID do dispositivo (opcional)</label>
-                      <input type="number" class="form-control" id="resourceDeviceId" min="1" placeholder="Ex.: 1">
-                    </div>
-                    <div class="col-md-2 d-grid gap-2">
-                      <button type="submit" class="btn btn-success" id="resourceFormSubmit">Adicionar recurso</button>
-                      <button type="button" class="btn btn-outline-secondary" id="resourceFormCancel" style="display: none;">Cancelar</button>
-                    </div>
-                  </form>
-                  <div class="form-text">Deixe o campo de dispositivo vazio para nao vincular.</div>
+        <div class="tab-content" id="adminTabsContent">
+          <div class="tab-pane fade show active" id="admin-resources" role="tabpanel">
+            <div class="row g-3 my-3">
+              <div class="col-lg-5">
+                <div class="card shadow-sm h-100">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Novo recurso</h5>
+                  </div>
+                  <div class="card-body">
+                    <form id="resourceForm">
+                      <div class="mb-2">
+                        <label class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="resourceName" required>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Descricao</label>
+                        <textarea class="form-control" id="resourceDescription" rows="2"></textarea>
+                      </div>
+                      <div class="row">
+                        <div class="col-md-6 mb-2">
+                          <label class="form-label">Tipo</label>
+                          <input type="text" class="form-control" id="resourceType" placeholder="sala, lab...">
+                        </div>
+                        <div class="col-md-6 mb-2">
+                          <label class="form-label">Localizacao</label>
+                          <input type="text" class="form-control" id="resourceLocation">
+                        </div>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Capacidade</label>
+                        <input type="number" class="form-control" id="resourceCapacity" min="1">
+                      </div>
+                      <button type="submit" class="btn btn-success w-100">Salvar recurso</button>
+                    </form>
+                  </div>
                 </div>
-                <hr>
-                <div id="adminResourcesList"></div>
+              </div>
+              <div class="col-lg-7">
+                <div class="card shadow-sm">
+                  <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Recursos cadastrados</h5>
+                    <span class="badge bg-light text-success" id="resourceCount"></span>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table align-middle" id="adminResourcesTable">
+                      <thead class="table-light">
+                        <tr>
+                          <th>ID</th>
+                          <th>Nome</th>
+                          <th>Status</th>
+                          <th>Tipo</th>
+                          <th>Acao</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="tab-pane fade" id="devices" role="tabpanel">
-            <div class="card">
-              <div class="card-body">
-                <div class="mb-4">
-                  <h5 class="card-title mb-3" id="deviceFormTitle">Cadastrar dispositivo</h5>
-                  <form id="deviceForm" class="row g-3 align-items-end">
-                    <div class="col-md-3">
-                      <label for="deviceName" class="form-label">Nome</label>
-                      <input type="text" class="form-control" id="deviceName" required>
-                    </div>
-                    <div class="col-md-2">
-                      <label for="deviceType" class="form-label">Tipo</label>
-                      <select id="deviceType" class="form-select">
-                        <option value="lock">lock</option>
-                        <option value="sensor">sensor</option>
-                      </select>
-                    </div>
-                    <div class="col-md-2">
-                      <label for="deviceStatus" class="form-label">Status</label>
-                      <select id="deviceStatus" class="form-select">
-                        <option value="active">active</option>
-                        <option value="inactive">inactive</option>
-                        <option value="locked">locked</option>
-                        <option value="unlocked">unlocked</option>
-                      </select>
-                    </div>
-                    <div class="col-md-1">
-                      <label for="deviceResourceId" class="form-label">Recurso</label>
-                      <input type="number" class="form-control" id="deviceResourceId" min="1" placeholder="ID">
-                    </div>
-                    <div class="col-md-2">
-                      <label for="deviceValue" class="form-label">Valor (opcional)</label>
-                      <input type="number" step="0.1" class="form-control" id="deviceValue" placeholder="Ex.: 24.5">
-                    </div>
-                    <div class="col-md-2 d-grid gap-2">
-                      <button type="submit" class="btn btn-success" id="deviceFormSubmit">Adicionar dispositivo</button>
-                      <button type="button" class="btn btn-outline-secondary" id="deviceFormCancel" style="display: none;">Cancelar</button>
-                    </div>
-                  </form>
-                  <div class="form-text">Preencha somente os campos necessarios para o dispositivo escolhido.</div>
+          <div class="tab-pane fade" id="admin-devices" role="tabpanel">
+            <div class="row g-3 my-3">
+              <div class="col-lg-5">
+                <div class="card shadow-sm h-100">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Novo dispositivo</h5>
+                  </div>
+                  <div class="card-body">
+                    <form id="deviceForm">
+                      <div class="mb-2">
+                        <label class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="deviceName" required>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" id="deviceType">
+                          <option value="lock">Tranca</option>
+                          <option value="sensor">Sensor</option>
+                          <option value="other">Outro</option>
+                        </select>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Associar recurso (ID)</label>
+                        <input type="number" class="form-control" id="deviceResourceId" min="1">
+                      </div>
+                      <button type="submit" class="btn btn-success w-100">Salvar dispositivo</button>
+                    </form>
+                  </div>
                 </div>
-                <hr>
-                <div id="adminDevicesList"></div>
+              </div>
+              <div class="col-lg-7">
+                <div class="card shadow-sm">
+                  <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Dispositivos cadastrados</h5>
+                    <span class="badge bg-light text-success" id="deviceCount"></span>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table align-middle" id="adminDevicesTable">
+                      <thead class="table-light">
+                        <tr>
+                          <th>ID</th>
+                          <th>Nome</th>
+                          <th>Status</th>
+                          <th>Recurso</th>
+                          <th>Acao</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="tab-pane fade" id="reservations" role="tabpanel">
-            <div class="card">
-              <div class="card-body">
-                <p class="text-muted small">Visualize, conclua ou cancele reservas ativas.</p>
-                <div id="adminReservationsList"></div>
+          <div class="tab-pane fade" id="admin-users" role="tabpanel">
+            <div class="row g-3 my-3">
+              <div class="col-lg-5">
+                <div class="card shadow-sm h-100">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Novo usuario</h5>
+                  </div>
+                  <div class="card-body">
+                    <form id="userForm">
+                      <div class="mb-2">
+                        <label class="form-label">Usuario</label>
+                        <input type="text" class="form-control" id="userUsername" required>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Nome completo</label>
+                        <input type="text" class="form-control" id="userFullName">
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" id="userEmail">
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Senha</label>
+                        <input type="password" class="form-control" id="userPassword" minlength="6" required>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Papel</label>
+                        <select class="form-select" id="userRoleSelect">
+                          <option value="user">Usuario</option>
+                          <option value="admin">Administrador</option>
+                        </select>
+                      </div>
+                      <div class="mb-2">
+                        <label class="form-label">Recursos permitidos (IDs separados por virgula)</label>
+                        <input type="text" class="form-control" id="userResourceIds" placeholder="1,2,3">
+                      </div>
+                      <button type="submit" class="btn btn-success w-100">Criar usuario</button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-7">
+                <div class="card shadow-sm">
+                  <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Usuarios</h5>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table align-middle" id="adminUsersTable">
+                      <thead class="table-light">
+                        <tr>
+                          <th>ID</th>
+                          <th>Usuario</th>
+                          <th>Papel</th>
+                          <th>Status</th>
+                          <th>Acao</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="admin-reservations" role="tabpanel">
+            <div class="card shadow-sm my-3">
+              <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Reservas do sistema</h5>
+                <div class="d-flex gap-2">
+                  <select id="adminReservationStatus" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    <option value="active">Ativo</option>
+                    <option value="scheduled">Agendado</option>
+                    <option value="completed">Concluido</option>
+                    <option value="expired">Expirado</option>
+                    <option value="cancelled">Cancelado</option>
+                  </select>
+                  <button class="btn btn-light btn-sm" id="adminReservationFilterBtn">Atualizar</button>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-middle" id="adminReservationsTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>ID</th>
+                      <th>Recurso</th>
+                      <th>Usuario</th>
+                      <th>Inicio</th>
+                      <th>Fim</th>
+                      <th>Status</th>
+                      <th>Acao</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="admin-audit" role="tabpanel">
+            <div class="card shadow-sm my-3">
+              <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Logs de auditoria</h5>
+                <button class="btn btn-light btn-sm" id="refreshAuditBtn">Atualizar</button>
+              </div>
+              <div class="table-responsive">
+                <table class="table align-middle" id="auditLogsTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Data</th>
+                      <th>Usuario</th>
+                      <th>Acao</th>
+                      <th>Recurso</th>
+                      <th>Dispositivo</th>
+                      <th>Resultado</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 
-  <div id="messageContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 1050;"></div>
-
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
