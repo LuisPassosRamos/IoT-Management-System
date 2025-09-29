@@ -7,11 +7,12 @@
     return 'http://localhost:8000';
   })();
 
+  const userIdStr = localStorage.getItem('userId');
   const state = {
     token: localStorage.getItem('authToken') || null,
     role: localStorage.getItem('userRole') || null,
     username: localStorage.getItem('username') || null,
-    userId: localStorage.getItem('userId') ? parseInt(localStorage.getItem('userId'), 10) : null,
+    userId: userIdStr ? parseInt(userIdStr, 10) : null,
     fullName: localStorage.getItem('fullName') || '',
     resources: [],
     devices: [],
