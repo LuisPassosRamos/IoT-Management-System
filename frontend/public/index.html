@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Navigation -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-success">
     <div class="container">
       <a class="navbar-brand" href="#" id="navbarBrand">
@@ -25,9 +24,7 @@
     </div>
   </nav>
 
-  <!-- Main Content -->
   <div class="container mt-4">
-    <!-- Login Page -->
     <div id="loginPage" class="row justify-content-center">
       <div class="col-md-6">
         <div class="card shadow">
@@ -37,11 +34,11 @@
           <div class="card-body">
             <form id="loginForm">
               <div class="mb-3">
-                <label for="username" class="form-label">Usuário:</label>
+                <label for="username" class="form-label">Usuario</label>
                 <input type="text" class="form-control" id="username" required>
               </div>
               <div class="mb-3">
-                <label for="password" class="form-label">Senha:</label>
+                <label for="password" class="form-label">Senha</label>
                 <input type="password" class="form-control" id="password" required>
               </div>
               <div class="d-grid">
@@ -49,72 +46,61 @@
               </div>
             </form>
             <div id="loginError" class="alert alert-danger mt-3" style="display: none;"></div>
-            
-            <!-- Demo credentials -->
+
             <div class="mt-4 p-3 bg-light border rounded">
-              <h6>Credenciais de Teste:</h6>
+              <h6>Credenciais de teste</h6>
               <p class="mb-1"><strong>Admin:</strong> admin / admin123</p>
-              <p class="mb-0"><strong>Usuário:</strong> user / user123</p>
+              <p class="mb-0"><strong>Usuario:</strong> user / user123</p>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Dashboard Page -->
     <div id="dashboardPage" style="display: none;">
-      <!-- User Dashboard -->
       <div id="userDashboard">
         <div class="row mb-4">
           <div class="col">
-            <h2 class="text-success">Dashboard do Usuário</h2>
+            <h2 class="text-success">Dashboard do usuario</h2>
             <p class="text-muted">Gerencie recursos compartilhados e monitore dispositivos IoT</p>
           </div>
         </div>
 
-        <!-- Resources Section -->
         <div class="row mb-4">
           <div class="col">
             <div class="card">
               <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Recursos Compartilhados</h5>
+                <h5 class="mb-0">Recursos compartilhados</h5>
               </div>
               <div class="card-body">
-                <div id="resourcesList">
-                  <!-- Resources will be loaded here -->
-                </div>
+                <div id="resourcesList"></div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Devices Section -->
         <div class="row">
           <div class="col">
             <div class="card">
               <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Estado dos Dispositivos IoT</h5>
+                <h5 class="mb-0">Estado dos dispositivos IoT</h5>
               </div>
               <div class="card-body">
-                <div id="devicesList">
-                  <!-- Devices will be loaded here -->
-                </div>
+                <div id="devicesList"></div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Admin Dashboard -->
       <div id="adminDashboard" style="display: none;">
         <div class="row mb-4">
           <div class="col">
-            <h2 class="text-success">Painel Administrativo</h2>
-            <p class="text-muted">Gerencie todos os recursos e dispositivos do sistema</p>
+            <h2 class="text-success">Painel administrativo</h2>
+            <p class="text-muted">Gerencie todos os recursos, dispositivos e reservas do sistema</p>
           </div>
         </div>
 
-        <!-- Admin tabs -->
         <ul class="nav nav-tabs" id="adminTabs" role="tablist">
           <li class="nav-item" role="presentation">
             <button class="nav-link active" id="resources-tab" data-bs-toggle="tab" data-bs-target="#resources" type="button" role="tab">
@@ -137,29 +123,86 @@
           <div class="tab-pane fade show active" id="resources" role="tabpanel">
             <div class="card">
               <div class="card-body">
-                <div id="adminResourcesList">
-                  <!-- Admin resources will be loaded here -->
+                <div class="mb-4">
+                  <h5 class="card-title mb-3" id="resourceFormTitle">Cadastrar recurso</h5>
+                  <form id="resourceForm" class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                      <label for="resourceName" class="form-label">Nome</label>
+                      <input type="text" class="form-control" id="resourceName" required>
+                    </div>
+                    <div class="col-md-4">
+                      <label for="resourceDescription" class="form-label">Descricao</label>
+                      <input type="text" class="form-control" id="resourceDescription" required>
+                    </div>
+                    <div class="col-md-2">
+                      <label for="resourceDeviceId" class="form-label">ID do dispositivo (opcional)</label>
+                      <input type="number" class="form-control" id="resourceDeviceId" min="1" placeholder="Ex.: 1">
+                    </div>
+                    <div class="col-md-2 d-grid gap-2">
+                      <button type="submit" class="btn btn-success" id="resourceFormSubmit">Adicionar recurso</button>
+                      <button type="button" class="btn btn-outline-secondary" id="resourceFormCancel" style="display: none;">Cancelar</button>
+                    </div>
+                  </form>
+                  <div class="form-text">Deixe o campo de dispositivo vazio para nao vincular.</div>
                 </div>
+                <hr>
+                <div id="adminResourcesList"></div>
               </div>
             </div>
           </div>
-          
+
           <div class="tab-pane fade" id="devices" role="tabpanel">
             <div class="card">
               <div class="card-body">
-                <div id="adminDevicesList">
-                  <!-- Admin devices will be loaded here -->
+                <div class="mb-4">
+                  <h5 class="card-title mb-3" id="deviceFormTitle">Cadastrar dispositivo</h5>
+                  <form id="deviceForm" class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                      <label for="deviceName" class="form-label">Nome</label>
+                      <input type="text" class="form-control" id="deviceName" required>
+                    </div>
+                    <div class="col-md-2">
+                      <label for="deviceType" class="form-label">Tipo</label>
+                      <select id="deviceType" class="form-select">
+                        <option value="lock">lock</option>
+                        <option value="sensor">sensor</option>
+                      </select>
+                    </div>
+                    <div class="col-md-2">
+                      <label for="deviceStatus" class="form-label">Status</label>
+                      <select id="deviceStatus" class="form-select">
+                        <option value="active">active</option>
+                        <option value="inactive">inactive</option>
+                        <option value="locked">locked</option>
+                        <option value="unlocked">unlocked</option>
+                      </select>
+                    </div>
+                    <div class="col-md-1">
+                      <label for="deviceResourceId" class="form-label">Recurso</label>
+                      <input type="number" class="form-control" id="deviceResourceId" min="1" placeholder="ID">
+                    </div>
+                    <div class="col-md-2">
+                      <label for="deviceValue" class="form-label">Valor (opcional)</label>
+                      <input type="number" step="0.1" class="form-control" id="deviceValue" placeholder="Ex.: 24.5">
+                    </div>
+                    <div class="col-md-2 d-grid gap-2">
+                      <button type="submit" class="btn btn-success" id="deviceFormSubmit">Adicionar dispositivo</button>
+                      <button type="button" class="btn btn-outline-secondary" id="deviceFormCancel" style="display: none;">Cancelar</button>
+                    </div>
+                  </form>
+                  <div class="form-text">Preencha somente os campos necessarios para o dispositivo escolhido.</div>
                 </div>
+                <hr>
+                <div id="adminDevicesList"></div>
               </div>
             </div>
           </div>
-          
+
           <div class="tab-pane fade" id="reservations" role="tabpanel">
             <div class="card">
               <div class="card-body">
-                <div id="adminReservationsList">
-                  <!-- Admin reservations will be loaded here -->
-                </div>
+                <p class="text-muted small">Visualize, conclua ou cancele reservas ativas.</p>
+                <div id="adminReservationsList"></div>
               </div>
             </div>
           </div>
@@ -168,12 +211,8 @@
     </div>
   </div>
 
-  <!-- Success/Error Messages -->
-  <div id="messageContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
-    <!-- Toast messages will appear here -->
-  </div>
+  <div id="messageContainer" class="position-fixed top-0 end-0 p-3" style="z-index: 1050;"></div>
 
-  <!-- Bootstrap JavaScript -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="app.js"></script>
 </body>
