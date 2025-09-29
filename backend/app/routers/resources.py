@@ -1,197 +1,363 @@
-﻿from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, status
-from app.models.schemas import (
+﻿from __future__ import annotations
+
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.db.session import get_db
+from app.models.db_models import (
+    Device,
     Resource,
+    ResourceStatus,
+    Reservation,
+    ReservationStatus,
+    User,
+    UserRole,
+)
+from app.models.schemas import (
     ResourceCreate,
     ResourceUpdate,
+    ResourceResponse,
     ReservationCreate,
-    Reservation,
+    ReservationRelease,
+    ReservationResponse,
 )
-from app.services.auth import get_current_user, require_admin
-from app.services.iot_simulation import device_simulator
-from app.storage.json_storage import storage
+from app.services.auth import require_active_user, require_admin
+from app.services import reservation_service, audit
+from app.services.notifications import manager as notification_manager
 
 router = APIRouter()
 
 
-@router.get("/resources", response_model=List[Resource])
-async def get_resources(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> List[Resource]:
-    """Get all resources with their availability status."""
-    return storage.get_resources()
+def _serialize_device(device: Device | None) -> dict | None:
+    if not device:
+        return None
+    return {
+        "id": device.id,
+        "name": device.name,
+        "type": device.type.value,
+        "status": device.status,
+        "resource_id": device.resource_id,
+        "numeric_value": device.numeric_value,
+        "text_value": device.text_value,
+        "metadata": device.metadata_json,
+        "last_reported_at": device.last_reported_at,
+    }
 
 
-@router.post(
-    "/resources",
-    response_model=Resource,
-    status_code=status.HTTP_201_CREATED,
-)
+def _serialize_reservation(reservation: Reservation) -> ReservationResponse:
+    resource = reservation.resource
+    user = reservation.user
+    return ReservationResponse(
+        id=reservation.id,
+        resource_id=reservation.resource_id,
+        user_id=reservation.user_id,
+        start_time=reservation.start_time,
+        end_time=reservation.end_time,
+        expires_at=reservation.expires_at,
+        status=reservation.status.value,
+        notes=reservation.notes,
+        released_by_admin=reservation.released_by_admin,
+        resource_name=resource.name if resource else None,
+        username=user.username if user else None,
+    )
+
+
+def _serialize_resource(resource: Resource) -> ResourceResponse:
+    active_reservation = next(
+        (res for res in resource.reservations if res.status == ReservationStatus.ACTIVE),
+        None,
+    )
+    return ResourceResponse(
+        id=resource.id,
+        name=resource.name,
+        description=resource.description,
+        type=resource.type,
+        location=resource.location,
+        capacity=resource.capacity,
+        status=resource.status.value,
+        current_reservation_id=active_reservation.id if active_reservation else None,
+        reserved_by_user=
+        active_reservation.user.username if active_reservation and active_reservation.user else None,
+        device=_serialize_device(resource.device),
+    )
+
+
+@router.get("/resources", response_model=List[ResourceResponse])
+async def list_resources(
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> List[ResourceResponse]:
+    """List resources filtered by user permissions."""
+
+    query = (
+        select(Resource)
+        .options(
+            selectinload(Resource.device),
+            selectinload(Resource.reservations).selectinload(Reservation.user),
+        )
+        .order_by(Resource.name)
+    )
+
+    if current_user.role != UserRole.ADMIN:
+        permitted_ids = [perm.resource_id for perm in current_user.permissions]
+        if not permitted_ids:
+            return []
+        query = query.where(Resource.id.in_(permitted_ids))
+
+    resources = db.scalars(query).unique().all()
+    return [_serialize_resource(resource) for resource in resources]
+
+
+@router.get("/resources/{resource_id}", response_model=ResourceResponse)
+async def get_resource(
+    resource_id: int,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> ResourceResponse:
+    """Get a single resource."""
+
+    resource = db.scalar(
+        select(Resource)
+        .options(
+            selectinload(Resource.device),
+            selectinload(Resource.reservations).selectinload(Reservation.user),
+        )
+        .where(Resource.id == resource_id)
+    )
+    if not resource:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+
+    reservation_service.ensure_user_can_manage_resource(current_user, resource)
+    return _serialize_resource(resource)
+
+
+@router.post("/resources", response_model=ResourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_resource(
-    resource: ResourceCreate, admin_user: Dict[str, Any] = Depends(require_admin)
-) -> Resource:
+    payload: ResourceCreate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ResourceResponse:
     """Create a new resource (admin only)."""
-    payload = resource.model_dump()
 
-    device_id = payload.get("device_id")
-    if device_id:
-        device = storage.get_device_by_id(device_id)
+    try:
+        status_value = (
+            ResourceStatus(payload.status)
+            if payload.status
+            else ResourceStatus.AVAILABLE
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid resource status") from exc
+
+    resource = Resource(
+        name=payload.name,
+        description=payload.description,
+        type=payload.type,
+        location=payload.location,
+        capacity=payload.capacity,
+        status=status_value,
+    )
+    db.add(resource)
+    db.flush()
+
+    if payload.device_id is not None:
+        device = db.get(Device, payload.device_id)
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
-        storage.update_device(device_id, {"resource_id": None})
+        device.resource_id = resource.id
 
-    new_resource = storage.add_resource(payload)
+    audit.record_audit(
+        db,
+        action="resource_created",
+        user_id=admin_user.id,
+        resource_id=resource.id,
+        details={"device_id": payload.device_id},
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "resource.created",
+            "resourceId": resource.id,
+            "status": resource.status.value,
+        }
+    )
 
-    if device_id:
-        storage.update_device(device_id, {"resource_id": new_resource["id"]})
-
-    return new_resource
+    return _serialize_resource(resource)
 
 
-@router.put("/resources/{resource_id}", response_model=Resource)
+@router.put("/resources/{resource_id}", response_model=ResourceResponse)
 async def update_resource(
     resource_id: int,
-    updates: ResourceUpdate,
-    admin_user: Dict[str, Any] = Depends(require_admin),
-) -> Resource:
-    """Update resource details (admin only)."""
-    existing = storage.get_resource_by_id(resource_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Resource not found")
+    payload: ResourceUpdate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ResourceResponse:
+    """Update resource information (admin only)."""
 
-    data = updates.model_dump(exclude_unset=True)
+    resource = db.scalar(
+        select(Resource)
+        .options(
+            selectinload(Resource.device),
+            selectinload(Resource.reservations).selectinload(Reservation.user),
+        )
+        .where(Resource.id == resource_id)
+    )
+    if not resource:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
 
-    if "device_id" in data and data["device_id"] is not None:
-        device = storage.get_device_by_id(data["device_id"])
-        if not device:
-            raise HTTPException(status_code=404, detail="Device not found")
+    updates = payload.model_dump(exclude_unset=True)
+    if "status" in updates and updates["status"] is not None:
+        try:
+            resource.status = ResourceStatus(updates.pop("status"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid resource status") from exc
 
-    storage.update_resource(resource_id, data)
+    if "device_id" in updates:
+        device_id = updates.pop("device_id")
+        if device_id is None and resource.device:
+            resource.device.resource_id = None
+        elif device_id is not None:
+            device = db.get(Device, device_id)
+            if not device:
+                raise HTTPException(status_code=404, detail="Device not found")
+            device.resource_id = resource.id
 
-    if "device_id" in data:
-        previous_device_id = existing.get("device_id")
-        new_device_id = data["device_id"]
-        if previous_device_id and previous_device_id != new_device_id:
-            storage.update_device(previous_device_id, {"resource_id": None})
-        if new_device_id:
-            storage.update_device(new_device_id, {"resource_id": resource_id})
+    for attr, value in updates.items():
+        setattr(resource, attr, value)
 
-    updated = storage.get_resource_by_id(resource_id)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Resource not found")
+    audit.record_audit(
+        db,
+        action="resource_updated",
+        user_id=admin_user.id,
+        resource_id=resource.id,
+        details=payload.model_dump(exclude_unset=True),
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "resource.updated",
+            "resourceId": resource.id,
+            "status": resource.status.value,
+        }
+    )
 
-    return updated
+    db.flush()
+    return _serialize_resource(resource)
 
 
 @router.delete("/resources/{resource_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_resource(
-    resource_id: int, admin_user: Dict[str, Any] = Depends(require_admin)
+    resource_id: int,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ) -> None:
     """Delete a resource (admin only)."""
-    if not storage.delete_resource(resource_id):
-        raise HTTPException(status_code=404, detail="Resource not found")
+
+    resource = db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
+
+    if resource.device:
+        resource.device.resource_id = None
+
+    audit.record_audit(
+        db,
+        action="resource_deleted",
+        user_id=admin_user.id,
+        resource_id=resource.id,
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "resource.deleted",
+            "resourceId": resource.id,
+        }
+    )
+
+    db.delete(resource)
 
 
-@router.post("/resources/{resource_id}/reserve", response_model=Reservation)
+@router.post("/resources/{resource_id}/reserve", response_model=ReservationResponse)
 async def reserve_resource(
     resource_id: int,
-    reservation_request: ReservationCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Reservation:
-    """Reserve a resource."""
-    resource = storage.get_resource_by_id(resource_id)
+    payload: ReservationCreate,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> ReservationResponse:
+    """Create a reservation for a resource."""
+
+    resource = db.scalar(
+        select(Resource)
+        .options(selectinload(Resource.reservations).selectinload(Reservation.user))
+        .where(Resource.id == resource_id)
+    )
     if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found")
 
-    if not resource["available"]:
-        raise HTTPException(
-            status_code=400, detail="Resource is already reserved"
-        )
+    target_user = current_user
+    if current_user.role == UserRole.ADMIN and payload.user_id:
+        target_user = db.get(User, payload.user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
 
-    reservation_user_id = current_user["id"]
-    if (
-        current_user.get("role") == "admin"
-        and reservation_request.user_id is not None
-    ):
-        reservation_user_id = reservation_request.user_id
-
-    storage.update_resource(
-        resource_id,
-        {"available": False, "reserved_by": reservation_user_id},
+    reservation = reservation_service.create_reservation(
+        db,
+        resource=resource,
+        user=target_user,
+        duration_minutes=payload.duration_minutes,
+        start_time=payload.start_time,
+        notes=payload.notes,
     )
 
-    if resource.get("device_id"):
-        device_data = storage.get_device_by_id(resource["device_id"])
-        if device_data and device_data["type"] == "lock":
-            device_simulator.register_device(device_data)
-            result = device_simulator.execute_device_action(
-                resource["device_id"], "unlock"
-            )
+    if resource.device and resource.device.type.value == "lock":
+        # Actual device integration handled elsewhere; placeholder for action trigger.
+        resource.device.status = "unlocked"
+        notification_manager.schedule_broadcast(
+            {
+                "type": "device.updated",
+                "deviceId": resource.device.id,
+                "status": resource.device.status,
+            }
+        )
 
-            if result.get("success"):
-                storage.update_device(
-                    resource["device_id"], {"status": result.get("status")}
-                )
-
-    reservation_payload = {
-        "resource_id": resource_id,
-        "user_id": reservation_user_id,
-        "status": "active",
-    }
-    return storage.add_reservation(reservation_payload)
+    db.flush()
+    db.refresh(reservation)
+    return _serialize_reservation(reservation)
 
 
-@router.post("/resources/{resource_id}/release", response_model=Resource)
+@router.post("/resources/{resource_id}/release", response_model=ReservationResponse)
 async def release_resource(
-    resource_id: int, current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Resource:
-    """Release a reserved resource."""
-    resource = storage.get_resource_by_id(resource_id)
-    if not resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
+    resource_id: int,
+    payload: ReservationRelease,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> ReservationResponse:
+    """Release the active reservation for a resource."""
 
-    if resource["available"]:
-        raise HTTPException(status_code=400, detail="Resource is not reserved")
+    reservation = reservation_service.get_active_reservation(db, resource_id)
+    if not reservation:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Resource is not reserved")
 
-    user_id = current_user["id"]
-    if resource["reserved_by"] != user_id and current_user["role"] != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="You can only release resources you have reserved",
-        )
+    if payload.force and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can force release")
 
-    storage.update_resource(
-        resource_id,
-        {"available": True, "reserved_by": None},
+    updated = reservation_service.release_reservation(
+        db,
+        reservation=reservation,
+        by_user=current_user,
+        notes=payload.notes,
+        force=payload.force,
     )
 
-    if resource.get("device_id"):
-        device_data = storage.get_device_by_id(resource["device_id"])
-        if device_data and device_data["type"] == "lock":
-            device_simulator.register_device(device_data)
-            result = device_simulator.execute_device_action(
-                resource["device_id"], "lock"
-            )
+    if reservation.resource.device and reservation.resource.device.type.value == "lock":
+        reservation.resource.device.status = "locked"
+        notification_manager.schedule_broadcast(
+            {
+                "type": "device.updated",
+                "deviceId": reservation.resource.device.id,
+                "status": reservation.resource.device.status,
+            }
+        )
 
-            if result.get("success"):
-                storage.update_device(
-                    resource["device_id"], {"status": result.get("status")}
-                )
-
-    active_reservations = [
-        reservation
-        for reservation in storage.get_reservations()
-        if reservation["resource_id"] == resource_id
-        and reservation["status"] == "active"
-    ]
-    if active_reservations:
-        latest = sorted(
-            active_reservations, key=lambda item: item["timestamp"]
-        )[-1]
-        storage.update_reservation(latest["id"], {"status": "completed"})
-
-    updated_resource = storage.get_resource_by_id(resource_id)
-    if not updated_resource:
-        raise HTTPException(status_code=404, detail="Resource not found")
-
-    return updated_resource
+    db.flush()
+    db.refresh(updated)
+    return _serialize_reservation(updated)

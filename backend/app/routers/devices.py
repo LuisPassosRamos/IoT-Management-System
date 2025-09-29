@@ -1,123 +1,284 @@
-﻿from typing import List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, status
-from app.models.schemas import Device, DeviceAction, DeviceCreate, DeviceUpdate
-from app.services.auth import get_current_user, require_admin
-from app.services.iot_simulation import device_simulator
-from app.storage.json_storage import storage
+﻿from __future__ import annotations
+
+from datetime import datetime
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.db.session import get_db
+from app.models.db_models import Device, DeviceType, User, UserRole
+from app.models.schemas import (
+    DeviceCreate,
+    DeviceUpdate,
+    DeviceResponse,
+    DeviceActionRequest,
+    DeviceStatusReport,
+)
+from app.services.auth import require_active_user, require_admin
+from app.services import audit
+from app.services.notifications import manager as notification_manager
 
 router = APIRouter()
 
 
-@router.get("/devices", response_model=List[Device])
-async def get_devices(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> List[Device]:
-    """Get all devices with their current status."""
-    devices = storage.get_devices()
-
-    devices_status: List[Dict[str, Any]] = []
-    for device_data in devices:
-        device_simulator.register_device(device_data)
-        simulated_status = device_simulator.get_device_status(device_data["id"]) or {}
-        combined = {**device_data, **simulated_status}
-        devices_status.append(combined)
-
-    return devices_status
+def _serialize_device(device: Device) -> DeviceResponse:
+    return DeviceResponse(
+        id=device.id,
+        name=device.name,
+        type=device.type.value,
+        status=device.status,
+        resource_id=device.resource_id,
+        numeric_value=device.numeric_value,
+        text_value=device.text_value,
+        metadata=device.metadata_json,
+        last_reported_at=device.last_reported_at,
+    )
 
 
-@router.get("/devices/{device_id}", response_model=Device)
+@router.get("/devices", response_model=List[DeviceResponse])
+async def list_devices(
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> List[DeviceResponse]:
+    """List devices accessible to the user."""
+
+    query = select(Device).options(selectinload(Device.resource)).order_by(Device.name)
+    if current_user.role != UserRole.ADMIN:
+        permitted_ids = [perm.resource_id for perm in current_user.permissions]
+        if not permitted_ids:
+            return []
+        query = query.where(Device.resource_id.in_(permitted_ids))
+
+    devices = db.scalars(query).unique().all()
+    return [_serialize_device(device) for device in devices]
+
+
+@router.get("/devices/{device_id}", response_model=DeviceResponse)
 async def get_device(
-    device_id: int, current_user: Dict[str, Any] = Depends(get_current_user)
-) -> Device:
-    """Get specific device details."""
-    device_data = storage.get_device_by_id(device_id)
-    if not device_data:
+    device_id: int,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> DeviceResponse:
+    """Retrieve a single device."""
+
+    device = db.scalar(
+        select(Device)
+        .options(selectinload(Device.resource))
+        .where(Device.id == device_id)
+    )
+    if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    device_simulator.register_device(device_data)
-    simulated_status = device_simulator.get_device_status(device_id) or {}
-    return {**device_data, **simulated_status}
+    if device.resource_id and current_user.role != UserRole.ADMIN:
+        permitted_ids = {perm.resource_id for perm in current_user.permissions}
+        if device.resource_id not in permitted_ids:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    return _serialize_device(device)
 
 
-@router.post(
-    "/devices",
-    response_model=Device,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 async def create_device(
-    device: DeviceCreate, admin_user: Dict[str, Any] = Depends(require_admin)
-) -> Device:
-    """Create a new IoT device (admin only)."""
-    payload = device.model_dump()
+    payload: DeviceCreate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DeviceResponse:
+    """Create a new device (admin only)."""
 
-    if payload.get("resource_id"):
-        resource = storage.get_resource_by_id(payload["resource_id"])
-        if not resource:
-            raise HTTPException(status_code=404, detail="Resource not found")
+    device = Device(
+        name=payload.name,
+        type=DeviceType(payload.type),
+        status=payload.status or "inactive",
+        resource_id=payload.resource_id,
+        numeric_value=payload.numeric_value,
+        text_value=payload.text_value,
+        metadata_json=payload.metadata,
+    )
+    db.add(device)
+    db.flush()
 
-    new_device = storage.add_device(payload)
-    device_simulator.register_device(new_device)
-    return new_device
+    audit.record_audit(
+        db,
+        action="device_created",
+        user_id=admin_user.id,
+        device_id=device.id,
+        resource_id=device.resource_id,
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.created",
+            "deviceId": device.id,
+            "status": device.status,
+            "resourceId": device.resource_id,
+        }
+    )
+
+    return _serialize_device(device)
 
 
-@router.put("/devices/{device_id}", response_model=Device)
+@router.put("/devices/{device_id}", response_model=DeviceResponse)
 async def update_device(
     device_id: int,
-    updates: DeviceUpdate,
-    admin_user: Dict[str, Any] = Depends(require_admin),
-) -> Device:
+    payload: DeviceUpdate,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> DeviceResponse:
     """Update device information (admin only)."""
-    if not storage.get_device_by_id(device_id):
-        raise HTTPException(status_code=404, detail="Device not found")
 
-    data = updates.model_dump(exclude_unset=True)
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
-    if "resource_id" in data and data["resource_id"] is not None:
-        resource = storage.get_resource_by_id(data["resource_id"])
-        if not resource:
-            raise HTTPException(status_code=404, detail="Resource not found")
+    updates = payload.model_dump(exclude_unset=True)
+    if "type" in updates and updates["type"] is not None:
+        device.type = DeviceType(updates.pop("type"))
+    if "metadata" in updates:
+        device.metadata_json = updates.pop("metadata")
 
-    storage.update_device(device_id, data)
-    updated_device = storage.get_device_by_id(device_id)
-    if updated_device:
-        device_simulator.register_device(updated_device)
-        simulated_status = device_simulator.get_device_status(device_id) or {}
-        return {**updated_device, **simulated_status}
+    for attr, value in updates.items():
+        setattr(device, attr, value)
 
-    raise HTTPException(status_code=404, detail="Device not found")
+    audit.record_audit(
+        db,
+        action="device_updated",
+        user_id=admin_user.id,
+        device_id=device.id,
+        resource_id=device.resource_id,
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.updated",
+            "deviceId": device.id,
+            "status": device.status,
+            "resourceId": device.resource_id,
+        }
+    )
+
+    return _serialize_device(device)
 
 
 @router.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_device(
-    device_id: int, admin_user: Dict[str, Any] = Depends(require_admin)
+    device_id: int,
+    admin_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ) -> None:
     """Delete a device (admin only)."""
-    if not storage.delete_device(device_id):
-        raise HTTPException(status_code=404, detail="Device not found")
 
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
-@router.post("/devices/{device_id}/action")
-async def execute_device_action(
-    device_id: int,
-    action_request: DeviceAction,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    """Execute action on IoT device."""
-    device_data = storage.get_device_by_id(device_id)
-    if not device_data:
-        raise HTTPException(status_code=404, detail="Device not found")
-
-    device_simulator.register_device(device_data)
-
-    result = device_simulator.execute_device_action(
-        device_id, action_request.action
+    audit.record_audit(
+        db,
+        action="device_deleted",
+        user_id=admin_user.id,
+        device_id=device.id,
+        resource_id=device.resource_id,
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.deleted",
+            "deviceId": device.id,
+        }
     )
 
-    if result.get("success"):
-        updates: Dict[str, Any] = {"status": result.get("status")}
-        if "value" in result:
-            updates["value"] = result["value"]
+    db.delete(device)
 
-        storage.update_device(device_id, updates)
 
-    return result
+@router.post("/devices/{device_id}/actions", response_model=DeviceResponse)
+async def execute_device_action(
+    device_id: int,
+    request: DeviceActionRequest,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> DeviceResponse:
+    """Execute a simulated action on a device."""
+
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    if device.resource:
+        if current_user.role != UserRole.ADMIN:
+            permitted_ids = {perm.resource_id for perm in current_user.permissions}
+            if device.resource_id not in permitted_ids:
+                raise HTTPException(status_code=403, detail="Access denied to device")
+
+    action = request.action.lower()
+    if device.type == DeviceType.LOCK:
+        if action not in {"lock", "unlock"}:
+            raise HTTPException(status_code=400, detail="Unsupported action for lock device")
+        device.status = "locked" if action == "lock" else "unlocked"
+    elif device.type == DeviceType.SENSOR:
+        if action == "read" and request.payload:
+            value = request.payload.get("numeric_value")
+            if value is not None:
+                device.numeric_value = float(value)
+        elif action in {"activate", "deactivate"}:
+            device.status = "active" if action == "activate" else "inactive"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported action for sensor device")
+    else:
+        device.status = request.payload.get("status", device.status) if request.payload else device.status
+
+    device.last_reported_at = datetime.utcnow()
+
+    audit.record_audit(
+        db,
+        action="device_action",
+        user_id=current_user.id,
+        device_id=device.id,
+        resource_id=device.resource_id,
+        details={"action": action},
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.updated",
+            "deviceId": device.id,
+            "status": device.status,
+            "resourceId": device.resource_id,
+        }
+    )
+
+    return _serialize_device(device)
+
+
+@router.post("/devices/report", status_code=status.HTTP_204_NO_CONTENT)
+async def report_device_status(
+    report: DeviceStatusReport,
+    db: Session = Depends(get_db),
+) -> None:
+    """Endpoint for device simulators to send status updates."""
+
+    device = db.get(Device, report.device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    device.status = report.status
+    device.numeric_value = report.numeric_value
+    device.text_value = report.text_value
+    device.metadata_json = report.metadata or device.metadata_json
+    device.last_reported_at = datetime.utcnow()
+
+    audit.record_audit(
+        db,
+        action="device_status_report",
+        device_id=device.id,
+        resource_id=device.resource_id,
+        details={
+            "status": report.status,
+            "numeric_value": report.numeric_value,
+            "text_value": report.text_value,
+        },
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.updated",
+            "deviceId": device.id,
+            "status": device.status,
+            "resourceId": device.resource_id,
+        }
+    )
