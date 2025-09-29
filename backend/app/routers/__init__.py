@@ -1,1 +1,8 @@
-# Empty __init__.py files to make directories Python packages
+﻿from . import auth, devices, resources, reservations
+
+__all__ = [
+    "auth",
+    "devices",
+    "resources",
+    "reservations",
+]
