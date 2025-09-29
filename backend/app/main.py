@@ -1,15 +1,13 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, devices, resources
+from app.routers import auth, devices, resources, reservations
 
-# Create FastAPI application
 app = FastAPI(
     title="IoT Management System",
-    description="Sistema de Gestão de Recursos Compartilhados com IoT",
+    description="Sistema de Gestao de Recursos Compartilhados com IoT",
     version="1.0.0",
 )
 
-# Configure CORS to allow frontend communication
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://frontend"],
@@ -18,10 +16,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth.router, tags=["authentication"])
 app.include_router(devices.router, tags=["devices"])
 app.include_router(resources.router, tags=["resources"])
+app.include_router(reservations.router, tags=["reservations"])
 
 
 @app.get("/")
