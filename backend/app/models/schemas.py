@@ -91,6 +91,15 @@ class DeviceActionRequest(BaseModel):
     payload: Optional[Dict[str, Any]] = None
 
 
+class DeviceCommandResponse(BaseModel):
+    id: int
+    action: str
+    payload: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DeviceStatusReport(BaseModel):
     device_id: int
     status: str

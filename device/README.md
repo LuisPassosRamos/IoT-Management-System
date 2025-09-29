@@ -28,4 +28,13 @@ O simulador autentica com o backend, descobre os dispositivos associados e cria 
 - **Lock**: consulta o estado do recurso e envia status `locked` ou `unlocked`.
 - **Outros tipos**: enviam eventos de manutencao simples.
 
+## Recebimento de comandos
+
+A partir da versao atual o simulador tambem consulta o endpoint `/devices/{id}/commands/next` para executar os comandos enviados pelo backend:
+
+- `unlock` libera a fechadura relacionada a uma reserva ativa.
+- `lock` trava a fechadura quando a reserva termina ou e cancelada.
+
+Comandos processados sao confirmados reportando imediatamente o novo estado via `/devices/report`. Dessa forma o requisito "recebe comandos do backend" e atendido.
+
 O simulador pode ser encerrado com `Ctrl+C`.

@@ -141,6 +141,28 @@ class Device(Base):
     resource: Mapped[Optional[Resource]] = relationship(back_populates="device")
     audit_logs: Mapped[List["AuditLog"]] = relationship(back_populates="device")
 
+    commands: Mapped[List["DeviceCommand"]] = relationship(
+        back_populates="device", cascade="all, delete-orphan"
+    )
+
+
+class DeviceCommand(Base):
+    """Queued commands for device execution."""
+
+    __tablename__ = "device_commands"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    device: Mapped[Device] = relationship(back_populates="commands")
 
 class Reservation(Base):
     """Reservation for resource usage."""

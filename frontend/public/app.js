@@ -142,6 +142,21 @@
     dom.resourcesList.innerHTML = filtered.map((resource) => {
       const statusClass = resource.status === 'available' ? 'bg-success' : resource.status === 'reserved' ? 'bg-danger' : 'bg-warning';
       const statusText = resource.status === 'available' ? 'Disponivel' : resource.status === 'reserved' ? 'Reservado' : 'Manutencao';
+      const availableUsers = Array.isArray(state.users) ? state.users : [];
+      const userOptions = availableUsers
+        .filter((user) => user.id !== state.userId)
+        .map((user) => `<option value="${user.id}">${user.full_name || user.username}</option>`)
+        .join('');
+      const adminSelector = state.role === 'admin'
+        ? `
+          <div class="mb-3">
+            <label class="form-label small mb-1" for="reserve-user-${resource.id}">Reservar para</label>
+            <select class="form-select form-select-sm admin-reserve-select" data-resource="${resource.id}" id="reserve-user-${resource.id}">
+              <option value="">Eu (${state.username || 'admin'})</option>
+              ${userOptions}
+            </select>
+          </div>`
+        : '';
       return `
         <div class="resource-card shadow-sm">
           <div class="d-flex justify-content-between align-items-start mb-2">
@@ -156,9 +171,10 @@
             <div class="col">Localizacao: <strong>${resource.location || '-'}</strong></div>
             <div class="col">Capacidade: <strong>${resource.capacity || '-'}</strong></div>
           </div>
-          <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-success" data-action="reserve" data-id="${resource.id}" ${resource.status !== 'available' ? 'disabled' : ''}>Reservar</button>
-            <button class="btn btn-sm btn-outline-secondary" data-action="release" data-id="${resource.id}" ${resource.status === 'reserved' ? '' : 'disabled'}>Liberar</button>
+          ${adminSelector}
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button class="btn btn-sm btn-success" data-action="reserve" data-id="${resource.id}" aria-label="Reservar recurso ${resource.name}" ${resource.status !== 'available' ? 'disabled' : ''}>Reservar</button>
+            <button class="btn btn-sm btn-outline-secondary" data-action="release" data-id="${resource.id}" aria-label="Liberar recurso ${resource.name}" ${resource.status === 'reserved' ? '' : 'disabled'}>Liberar</button>
           </div>
         </div>
       `;
@@ -225,7 +241,7 @@
       `;
       if (!includeActions) return `<tr>${base}</tr>`;
       const action = (item.status === 'active' || item.status === 'scheduled')
-        ? `<button class="btn btn-sm btn-outline-danger" data-force-id="${item.resource_id}">Forcar fim</button>`
+        ? `<button class="btn btn-sm btn-outline-danger" data-force-id="${item.resource_id}">Forcar termino</button>`
         : '-';
       return `<tr>${base}<td>${action}</td></tr>`;
     }).join('');
@@ -351,6 +367,14 @@
     }
   };
   const promptReservation = async (resourceId) => {
+    let selectedUserId = null;
+    if (state.role === 'admin' && dom.resourcesList) {
+      const selector = dom.resourcesList.querySelector(`select[data-resource="${resourceId}"]`);
+      if (selector && selector.value) {
+        const parsed = parseInt(selector.value, 10);
+        if (!Number.isNaN(parsed)) selectedUserId = parsed;
+      }
+    }
     const durationInput = prompt('Duracao em minutos', '30');
     if (!durationInput) return;
     const duration = parseInt(durationInput, 10);
@@ -359,7 +383,11 @@
       return;
     }
     try {
-      await api.reserve(resourceId, { duration_minutes: duration });
+      const payload = { duration_minutes: duration };
+      if (state.role === 'admin' && selectedUserId) {
+        payload.user_id = selectedUserId;
+      }
+      await api.reserve(resourceId, payload);
       await Promise.all([loadResources(), loadActiveReservations(), loadHistory(), loadStats()]);
     } catch (error) {
       alert(`Falha ao reservar: ${error.message}`);

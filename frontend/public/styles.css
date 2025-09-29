@@ -217,3 +217,18 @@ body {
 .badge {
   text-transform: capitalize;
 }
+
+/* Admin reservation selector */
+.admin-reserve-select {
+  min-width: 10rem;
+}
+
+@media (max-width: 576px) {
+  .admin-reserve-select {
+    width: 100%;
+  }
+  .resource-card .d-flex.flex-wrap.gap-2.align-items-center > * {
+    flex: 1 1 100%;
+  }
+}
+

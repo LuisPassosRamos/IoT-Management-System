@@ -169,6 +169,41 @@ def test_reservation_conflict(client: TestClient) -> None:
     assert conflict_response.status_code == 409
 
 
+
+
+def test_device_command_flow(client: TestClient) -> None:
+    admin = login(client, "admin", "admin123")
+    headers = auth_headers(admin["token"])
+
+    reserve_response = client.post(
+        
+        "/resources/1/reserve",
+        headers=headers,
+        json={"duration_minutes": 30},
+    )
+    assert reserve_response.status_code == 200
+
+    command_response = client.post(
+        "/devices/1/commands/next", headers=headers
+    )
+    assert command_response.status_code == 200
+    command_json = command_response.json()
+    assert command_json["action"] == "unlock"
+
+    next_response = client.post("/devices/1/commands/next", headers=headers)
+    assert next_response.status_code == 204
+
+    release_response = client.post(
+        "/resources/1/release",
+        headers=headers,
+        json={"force": True},
+    )
+    assert release_response.status_code == 200
+
+    lock_command = client.post("/devices/1/commands/next", headers=headers)
+    assert lock_command.status_code == 200
+    assert lock_command.json()["action"] == "lock"
+
 def test_admin_export_reservations_csv(client: TestClient) -> None:
     admin = login(client, "admin", "admin123")
     headers = auth_headers(admin["token"])

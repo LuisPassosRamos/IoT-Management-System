@@ -6,7 +6,7 @@ Sistema de Gestao de Recursos Compartilhados com dispositivos IoT simulados. O p
 
 - **Backend**: FastAPI + SQLAlchemy + SQLite (rotas REST e WebSocket)
 - **Frontend**: HTML/Bootstrap/JavaScript com atualizacao em tempo real
-- **Simulador**: Script Python que envia status periodicos de dispositivos
+- **Simulador**: Script Python que envia status periodicos e executa comandos do backend
 - **Logs**: Auditoria estruturada `{timestamp, user, action, resourceId, result}`
 - **Documentacao**: Diagramas PlantUML, relatorio tecnico e roteiro de slides
 
@@ -99,7 +99,7 @@ docker compose up --build
 - `GET /reservations` (filtros por status, user, recurso, datas)
 - `GET /reservations/stats/summary`
 - `GET /reservations/export?format=csv|pdf`
-- `GET /devices` | `POST /devices` | `POST /devices/report`
+- `GET /devices` | `POST /devices` | `POST /devices/report` | `POST /devices/{id}/commands/next`
 - `GET /users` | `POST /users` | `PUT /users/{id}/permissions`
 - `GET /audit-logs`
 - WebSocket: `ws://localhost:8000/ws/updates`
@@ -110,11 +110,14 @@ docker compose up --build
 - Lista reservas ativas, historico filtravel e estatisticas com Chart.js
 - Painel admin com CRUD de recursos, dispositivos, usuarios e auditoria
 - Conexao WebSocket para atualizacoes imediatas de recursos/reservas/dispositivos
+- Administrador pode selecionar outro usuario ao reservar um recurso
+- Ajustes de responsividade (flex-wrap em botoes) e rotulos com aria-labels
 
 ## Simulador (device/simulator.py)
 
 - Autentica no backend e descobre dispositivos
 - Threads enviam status periodico via `/devices/report`
+- Recebe comandos agendados via `/devices/{id}/commands/next` e responde com `lock`/`unlock`
 - Bloqueios sao deixados `locked`/`unlocked` conforme status do recurso
 - Parametros CLI: `--base-url`, `--username`, `--password`, `--interval`, `--insecure`
 

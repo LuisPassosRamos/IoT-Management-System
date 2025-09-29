@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,9 +15,10 @@ from app.models.schemas import (
     DeviceResponse,
     DeviceActionRequest,
     DeviceStatusReport,
+    DeviceCommandResponse,
 )
 from app.services.auth import require_active_user, require_admin
-from app.services import audit
+from app.services import audit, device_commands
 from app.services.notifications import manager as notification_manager
 
 router = APIRouter()
@@ -244,6 +245,30 @@ async def execute_device_action(
     )
 
     return _serialize_device(device)
+
+
+@router.post("/devices/{device_id}/commands/next", response_model=DeviceCommandResponse)
+async def fetch_next_command(
+    device_id: int,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+):
+    """Return the next pending command for a device."""
+
+    device = db.get(Device, device_id)
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    if device.resource and current_user.role != UserRole.ADMIN:
+        permitted_ids = {perm.resource_id for perm in current_user.permissions}
+        if device.resource_id not in permitted_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to device")
+
+    command = device_commands.fetch_next_command(db, device_id)
+    if not command:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    return command
 
 
 @router.post("/devices/report", status_code=status.HTTP_204_NO_CONTENT)

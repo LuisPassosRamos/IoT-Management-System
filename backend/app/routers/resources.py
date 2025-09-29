@@ -308,17 +308,6 @@ async def reserve_resource(
         notes=payload.notes,
     )
 
-    if resource.device and resource.device.type.value == "lock":
-        # Actual device integration handled elsewhere; placeholder for action trigger.
-        resource.device.status = "unlocked"
-        notification_manager.schedule_broadcast(
-            {
-                "type": "device.updated",
-                "deviceId": resource.device.id,
-                "status": resource.device.status,
-            }
-        )
-
     db.flush()
     db.refresh(reservation)
     return _serialize_reservation(reservation)
@@ -347,16 +336,6 @@ async def release_resource(
         notes=payload.notes,
         force=payload.force,
     )
-
-    if reservation.resource.device and reservation.resource.device.type.value == "lock":
-        reservation.resource.device.status = "locked"
-        notification_manager.schedule_broadcast(
-            {
-                "type": "device.updated",
-                "deviceId": reservation.resource.device.id,
-                "status": reservation.resource.device.status,
-            }
-        )
 
     db.flush()
     db.refresh(updated)

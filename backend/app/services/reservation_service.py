@@ -15,11 +15,44 @@ from app.models.db_models import (
     ReservationStatus,
     User,
     UserRole,
+    DeviceType,
 )
-from app.services import audit
+from app.services import audit, device_commands
 from app.services.notifications import manager as notification_manager
 
 settings = get_settings()
+
+
+def queue_lock_command(
+    db: Session, resource: Resource, action: str, reservation_id: Optional[int]
+) -> None:
+    """Queue a lock/unlock command for a resource device."""
+
+    device = resource.device
+    if not device or device.type != DeviceType.LOCK:
+        return
+
+    target_status = "unlocked" if action == "unlock" else "locked"
+    device_commands.queue_command(
+        db, device_id=device.id, action=action, payload={"reservation_id": reservation_id}
+    )
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.command",
+            "deviceId": device.id,
+            "action": action,
+            "reservationId": reservation_id,
+        }
+    )
+    device.status = target_status
+    notification_manager.schedule_broadcast(
+        {
+            "type": "device.updated",
+            "deviceId": device.id,
+            "status": device.status,
+        }
+    )
+
 
 
 def _compute_expires_at(start_time: datetime, duration_minutes: int) -> datetime:
@@ -128,6 +161,7 @@ def create_reservation(
 
     if reservation.status == ReservationStatus.ACTIVE:
         resource.status = ResourceStatus.RESERVED
+        queue_lock_command(db, resource, "unlock", reservation.id)
 
     audit.record_audit(
         db,
@@ -172,6 +206,7 @@ def activate_scheduled_reservations(db: Session) -> List[int]:
     for reservation in reservations:
         reservation.status = ReservationStatus.ACTIVE
         reservation.resource.status = ResourceStatus.RESERVED
+        queue_lock_command(db, reservation.resource, "unlock", reservation.id)
         activated.append(reservation.id)
         audit.record_audit(
             db,
@@ -239,6 +274,7 @@ def release_reservation(
     )
     if not has_other_active:
         resource.status = ResourceStatus.AVAILABLE
+        queue_lock_command(db, resource, "lock", reservation.id)
 
     audit.record_audit(
         db,
@@ -284,6 +320,7 @@ def expire_overdue_reservations(db: Session) -> List[int]:
         reservation.status = ReservationStatus.EXPIRED
         reservation.end_time = reservation.expires_at
         reservation.resource.status = ResourceStatus.AVAILABLE
+        queue_lock_command(db, reservation.resource, "lock", reservation.id)
         expired_ids.append(reservation.id)
         audit.record_audit(
             db,

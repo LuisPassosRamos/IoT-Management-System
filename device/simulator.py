@@ -97,6 +97,16 @@ class BackendClient:
         )
         response.raise_for_status()
 
+    def fetch_next_command(self, device_id: int) -> Optional[Dict[str, Any]]:
+        response = self.http.post(
+            f"{self.base_url}/devices/{device_id}/commands/next",
+            headers=self._auth_headers(),
+        )
+        if response.status_code == 204:
+            return None
+        response.raise_for_status()
+        return response.json()
+
 
 class DeviceWorker(threading.Thread):
     """Thread responsible for simulating a single device."""
@@ -118,6 +128,7 @@ class DeviceWorker(threading.Thread):
         logger.info("Starting worker for %s (%s)", self.device.name, self.device.type)
         while not self.stop_event.is_set():
             try:
+                self._process_commands()
                 self._publish_status()
             except httpx.HTTPError as exc:
                 logger.warning("Failed to publish status for %s: %s", self.device.name, exc)
@@ -141,6 +152,42 @@ class DeviceWorker(threading.Thread):
             self.client.report_device_status(self.device.id, status=status)
         else:
             self.client.report_device_status(self.device.id, status="active")
+
+    def _process_commands(self) -> None:
+        while not self.stop_event.is_set():
+            command = None
+            try:
+                command = self.client.fetch_next_command(self.device.id)
+            except httpx.HTTPError as exc:
+                logger.warning("Failed to fetch command for %s: %s", self.device.name, exc)
+                return
+            if not command:
+                return
+            self._handle_command(command)
+
+    def _handle_command(self, command: Dict[str, Any]) -> None:
+        action = command.get("action")
+        payload = command.get("payload") or {}
+        logger.info("Executing command %s on %s", action, self.device.name)
+        if self.device.type == "lock":
+            if action == "unlock":
+                self.client.report_device_status(self.device.id, status="unlocked")
+            elif action == "lock":
+                self.client.report_device_status(self.device.id, status="locked")
+            else:
+                logger.warning("Unsupported action %s for lock device", action)
+                return
+        elif self.device.type == "sensor":
+            if action == "read":
+                self._publish_status()
+                return
+            logger.warning("Unsupported action %s for sensor device", action)
+            return
+        else:
+            logger.debug("No specific command handling for type %s", self.device.type)
+            self.client.report_device_status(self.device.id, status="active")
+        if payload.get("reservation_id"):
+            logger.debug("Command payload reservation_id=%s", payload["reservation_id"])
 
 
 class Simulator:
