@@ -1,137 +1,212 @@
-# IoT Management System
+﻿# IoT Management System
 
-Sistema de Gestao de Recursos Compartilhados com dispositivos IoT simulados. O projeto foi reorganizado para atender aos requisitos de cadastro completo, auditoria, estatisticas e comunicacao em tempo real.
+Sistema completo para gestao de recursos compartilhados com apoio de dispositivos IoT simulados. O projeto inclui backend FastAPI, frontend responsivo em Bootstrap, simulador de dispositivos em Python e artefatos de documentacao.
 
-## Visao Geral
+## Visao geral
 
-- **Backend**: FastAPI + SQLAlchemy + SQLite (rotas REST e WebSocket)
-- **Frontend**: HTML/Bootstrap/JavaScript com atualizacao em tempo real
-- **Simulador**: Script Python que envia status periodicos e executa comandos do backend
-- **Logs**: Auditoria estruturada `{timestamp, user, action, resourceId, result}`
-- **Documentacao**: Diagramas PlantUML, relatorio tecnico e roteiro de slides
+- **Controle de reservas** com verificacao de conflitos, timeout automatico e liberacao forçada por administradores.
+- **IoT integrado**: dispositivos virtuais trocam comandos com o backend (`lock`/`unlock`, leituras de sensores) via API dedicada.
+- **Auditoria completa** com logs estruturados e exportacao historica (CSV/PDF).
+- **Atualizacoes em tempo real** via WebSocket para recursos, reservas e dispositivos.
+- **Documentacao**: diagramas PlantUML, relatorio tecnico e roteiro de apresentacao.
 
-## Estrutura de Diretorios
+## Arquitetura
 
 ```
-backend/                 # API FastAPI
-  app/
-    core/                # Configuracoes
-    db/                  # Base SQLAlchemy e init_db
-    models/              # Modelos ORM + schemas Pydantic
-    routers/             # auth, resources, devices, reservations, users, audit, realtime
-    services/            # auth, reservation_service, audit, notifications
-  tests/                 # Testes pytest
-frontend/
-  public/                # index.html, styles.css, app.js
-  Dockerfile
-device/
-  simulator.py           # Simulador de dispositivos IoT
-  requirements.txt
- data/
-  iot.db                 # Banco SQLite (gerado automaticamente)
-docs/
-  uml/                   # Diagramas PlantUML
-  report/                # Relatorio tecnico
-  presentation/          # Roteiro de slides
+IoT Management System
+├── backend/          # API FastAPI + SQLAlchemy + WebSocket
+│   ├── app/core/     # Configuracoes e variaveis de ambiente
+│   ├── app/db/       # Base declarativa e inicializacao do banco
+│   ├── app/models/   # Modelos ORM e schemas Pydantic
+│   ├── app/routers/  # Rotas: auth, resources, devices, reservations, users, audit, realtime
+│   ├── app/services/ # Regras de negocio, fila de comandos, autenticacao, notificacoes
+│   └── tests/        # Testes pytest (API e servicos)
+├── frontend/         # Interface responsiva (Bootstrap, Chart.js, JS vanilla)
+│   └── public/
+├── device/           # Simulador de dispositivos IoT (Python + httpx)
+└── data/             # Banco SQLite padrao (`iot.db`)
 ```
 
-## Dependencias Principais
+Componentes se comunicam exclusivamente por HTTP/JSON. O backend expone WebSocket (`/ws/updates`) para notificacoes.
 
-- Python 3.11+
-- FastAPI, SQLAlchemy, passlib, fpdf2
-- Bootstrap 5, Chart.js (frontend)
-- httpx (simulador)
+## Banco de dados
 
-## Configuracao Rapida (ambiente local)
+- **SQLite** local (pode ser substituido via `DATABASE_URL`).
+- **SQLAlchemy** 2.x com models tipados (`User`, `Resource`, `Device`, `Reservation`, `DeviceCommand`, `AuditLog`).
+- Seeds iniciais: usuarios `admin`/`user`, recursos exemplo, dispositivos lock/sensor.
 
-### 1. Backend
+Entidades-chave:
+- `device_commands`: fila FIFO para comandos a serem executados pelo simulador (`lock`/`unlock`, outros).
+- `reservations`: inclui `expires_at`, `status` (scheduled/active/completed/expired/cancelled) e `released_by_admin`.
+- `audit_logs`: armazena `{timestamp, user, action, resource_id, device_id, reservation_id, result, details}`.
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-set SECRET_KEY=change-me    # Windows (PowerShell)
-export SECRET_KEY=change-me # Linux/macOS
-uvicorn app.main:app --reload
-```
+## Backend
 
-- API: `http://localhost:8000`
-- Documentacao Swagger: `http://localhost:8000/docs`
+**Tecnologias**: FastAPI, Pydantic v2, SQLAlchemy 2, Passlib (bcrypt), fpdf2, Uvicorn.
 
-### 2. Frontend estatico
+**Rotas principais**:
+- Authentication: `POST /login` (JWT Bearer).
+- Recursos: `GET/POST/PUT/DELETE /resources`, `POST /resources/{id}/reserve`, `POST /resources/{id}/release`.
+- Reservas: `GET /reservations` (filtros por status, usuario, recurso, periodo), `GET /reservations/stats/summary`, `GET /reservations/export?format=csv|pdf`.
+- Dispositivos: `GET/POST/PUT/DELETE /devices`, `POST /devices/report`, `POST /devices/{id}/commands/next` (consumir comandos).
+- Usuarios: `GET/POST/PUT /users`, `PUT /users/{id}/permissions` (somente admin).
+- Auditoria: `GET /audit-logs` (admin).
+- WebSocket: `ws://<host>:8000/ws/updates` (eventos `resource.*`, `reservation.*`, `device.*`).
 
-```bash
-cd frontend/public
-python -m http.server 8080
-```
+**Workers e fila**:
+- `reservation_service` executa verificacao periodica (`activate_scheduled_reservations`, `expire_overdue_reservations`).
+- Comandos `lock`/`unlock` sao enfileirados na tabela `device_commands` para o simulador consumir.
+- `device_commands.fetch_next_command` devolve e marca como consumido (retorna 204 quando vazio).
 
-Acesse `http://localhost:8080`.
+**Auditoria e permissoes**:
+- `ResourcePermission` restringe usuario comum a recursos explicitamente permitidos.
+- Admins podem reservar para qualquer usuario (payload `user_id`).
+- Logs gerados para reservas, dispositivos e alteracoes de recursos/usuarios.
 
-### 3. Simulador de dispositivos (opcional)
+## Frontend
 
+- **Stack**: HTML5, Bootstrap 5, Chart.js, ES6 vanilla (sem frameworks).
+- **Modulo JS** (`public/app.js`):
+  - Autentica usuario, guarda token no `localStorage`.
+  - Painel usuario: lista de recursos com filtros, reserva/liberacao, reservas ativas, historico filtravel, estatisticas (grafico linha).
+  - Painel admin: abas para recursos, dispositivos, usuarios, reservas, auditoria; CRUD completo + exportacao CSV/PDF.
+  - Admin pode selecionar outro usuario para reservar (`select` na carta de recurso).
+  - WebSocket reconecta automaticamente e sincroniza caches.
+  - Botões possuem `aria-label` e layout se adapta (flex wrap, selectors responsivos).
+
+## Simulador de dispositivos (`device/simulator.py`)
+
+- CLI Python 3.11+ usando `httpx`.
+- Autentica, descobre dispositivos (`GET /devices`).
+- Para cada dispositivo, thread dedicada:
+  - busca comandos pendentes (`POST /devices/{id}/commands/next`) e executa (`lock`/`unlock`, `read`).
+  - envia leitura/estado atual via `/devices/report` (sensores geram temperatura aleatoria).
+  - ajusta estado local conforme reservas (consulta recurso associado).
+
+Execucao:
 ```bash
 cd device
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python simulator.py --base-url http://localhost:8000 --username admin --password admin123 --interval 30
 ```
+Parâmetros extras: `--interval` (segundos), `--insecure`.
 
-### 4. Docker Compose (opcional)
+## WebSocket e eventos
 
+Eventos JSON enviados pelo backend:
+- `resource.created | updated | deleted`
+- `reservation.created | updated`
+- `device.created | updated | deleted`
+- `device.command` (quando fila recebe `lock`/`unlock`)
+
+Payload tipico:
+```json
+{
+  "type": "reservation.updated",
+  "reservationId": 12,
+  "resourceId": 3,
+  "userId": 2,
+  "status": "active"
+}
+```
+
+## Configuracao e execucao
+
+### Requisitos
+- Python 3.11+
+- Node nao necessario (frontend estatico)
+- Docker opcional
+
+### Variaveis importantes
+- `SECRET_KEY`: chave JWT (default inseguro).
+- `DATABASE_URL`: ex.: `postgresql+psycopg://user:pass@localhost/iot`.
+- `RESERVATION_TIMEOUT_MINUTES`, `RESERVATION_CHECK_INTERVAL_SECONDS`.
+- `CORS_ORIGINS`: hosts permitidos (comma-separated).
+
+### Execucao local
+```bash
+# Backend
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+
+# Frontend estatico
+cd frontend/public
+python -m http.server 8080
+```
+Acesse: API `http://localhost:8000`, UI `http://localhost:8080`.
+
+### Docker
 ```bash
 docker compose up --build
 ```
-
-## Credenciais de exemplo
-
-| Usuario | Senha     | Papel         |
-|---------|-----------|---------------|
-| admin   | admin123  | Administrador |
-| user    | user123   | Usuario comum |
-
-## Principais Endpoints
-
-- `POST /login`
-- `GET /resources` | `POST /resources` | `PUT /resources/{id}` | `DELETE /resources/{id}`
-- `POST /resources/{id}/reserve` | `POST /resources/{id}/release`
-- `GET /reservations` (filtros por status, user, recurso, datas)
-- `GET /reservations/stats/summary`
-- `GET /reservations/export?format=csv|pdf`
-- `GET /devices` | `POST /devices` | `POST /devices/report` | `POST /devices/{id}/commands/next`
-- `GET /users` | `POST /users` | `PUT /users/{id}/permissions`
-- `GET /audit-logs`
-- WebSocket: `ws://localhost:8000/ws/updates`
-
-## Frontend (app.js)
-
-- Exibe recursos com filtro de texto/tipo e botoes de reserva/liberacao
-- Lista reservas ativas, historico filtravel e estatisticas com Chart.js
-- Painel admin com CRUD de recursos, dispositivos, usuarios e auditoria
-- Conexao WebSocket para atualizacoes imediatas de recursos/reservas/dispositivos
-- Administrador pode selecionar outro usuario ao reservar um recurso
-- Ajustes de responsividade (flex-wrap em botoes) e rotulos com aria-labels
-
-## Simulador (device/simulator.py)
-
-- Autentica no backend e descobre dispositivos
-- Threads enviam status periodico via `/devices/report`
-- Recebe comandos agendados via `/devices/{id}/commands/next` e responde com `lock`/`unlock`
-- Bloqueios sao deixados `locked`/`unlocked` conforme status do recurso
-- Parametros CLI: `--base-url`, `--username`, `--password`, `--interval`, `--insecure`
+Servicos: backend (8000), frontend (8080).
 
 ## Testes
 
+- Testes de API (`backend/tests/test_api.py`) cobrem fluxo end-to-end: login, CRUD, reservas, exportacoes, auditoria.
+- Testes de servicos (`backend/tests/test_services.py`) cobrem fila de comandos, autorizacao de recursos e liberacao.
+
+Antes de executar os testes garanta que todas as dependencias estejam instaladas:
 ```bash
 cd backend
+pip install -r requirements.txt
 python -m pytest
 ```
+(Instale `pytest` caso necessario; o arquivo de requirements inclui `sqlalchemy` e `httpx` usados nos testes.)
 
-> Observacao: instale `pytest` caso nao esteja presente (`pip install pytest`).
+## API resumida
 
-## Documentacao
+| Metodo | Rota | Descricao | Permissao |
+|--------|------|-----------|-----------|
+| POST | /login | Autenticacao JWT | Publico |
+| GET | /resources | Lista recursos (filtrado por permissao) | Autenticado |
+| POST | /resources | Cria recurso | Admin |
+| POST | /resources/{id}/reserve | Reserva recurso (admin pode informar `user_id`) | Autenticado |
+| POST | /resources/{id}/release | Libera recurso (`force` exige admin) | Autenticado |
+| GET | /reservations | Historico com filtros | Admin / Usuario (restrito) |
+| GET | /reservations/stats/summary | Estatisticas gerais | Admin |
+| GET | /reservations/export | Exporta CSV/PDF | Admin |
+| GET | /devices | Lista dispositivos | Autenticado (restrito) |
+| POST | /devices/{id}/commands/next | Retorna proximo comando pendente | Autenticado |
+| POST | /devices/report | Reporta status | Publico (simulador) |
+| GET | /users | Lista usuarios | Admin |
+| PUT | /users/{id}/permissions | Atualiza permissao de recursos | Admin |
+| GET | /audit-logs | Auditoria | Admin |
 
-- Diagramas: `docs/uml/*.puml`
-- Relatorio tecnico: `docs/report/relatorio.md`
-- Roteiro de slides: `docs/presentation/apresentacao.md`
+## Uso tipico
+1. **Administrador** faz login e cadastra recursos/dispositivos.
+2. **Simulador** e iniciado para enviar status e executar comandos.
+3. Usuarios autenticam, visualizam recursos permitidos e reservam.
+4. Backend gera comando `unlock` -> simulador executa -> estado atualizado.
+5. Ao expirar/liberar, backend gera `lock` e atualiza historico/auditoria.
+6. Admin exporta historico e consulta estatisticas/auditoria.
+
+## Credenciais de exemplo
+| Usuario | Senha | Perfil |
+|---------|-------|--------|
+| admin   | admin123 | Administrador |
+| user    | user123  | Usuario comum |
+
+## Acessibilidade e responsividade
+- Componentes principais possuem `aria-label`.
+- Layout responsivo (Bootstrap grid + ajustes em `.admin-reserve-select`).
+- Botões agrupados com flex-wrap para telas pequenas.
+
+## Melhorias futuras sugeridas
+- Interface grafica para agendamento futuro (reservas scheduled).
+- Integracao com dispositivos reais (MQTT/HTTP seguro).
+- Internacionalizacao (i18n) e tema escuro.
+- Pipeline CI/CD (lint, testes, build docker).
+
+## Documentacao complementar
+- `docs/uml/*.puml`: diagramas de componentes, sequencia e casos de uso (PlantUML).
+- `docs/report/relatorio.md`: relatorio tecnico completo.
+- `docs/presentation/apresentacao.md`: roteiro de slides (10-12 slides).
+
+---
+Desenvolvido como projeto academico para o IFBA.

@@ -1,10 +1,9 @@
-﻿import os
+import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Configure database URL before importing the application
 TEST_DB_PATH = Path(__file__).parent / "test_iot.db"
 if TEST_DB_PATH.exists():
     TEST_DB_PATH.unlink()
@@ -209,8 +208,8 @@ def test_admin_export_reservations_csv(client: TestClient) -> None:
     headers = auth_headers(admin["token"])
 
     response = client.get("/reservations/export?format=csv", headers=headers)
-    assert response.status_code == 200
-    assert "text/csv" in response.headers["content-type"]
+    assert response.status_code == 200, response.json()
+    assert "text/csv" in response.headers.get("content-type", "")
 
 
 def test_audit_logs_admin_access(client: TestClient) -> None:

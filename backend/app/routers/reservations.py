@@ -60,65 +60,6 @@ def _apply_filters(query, filters: ReservationFilter) -> None:
     return query
 
 
-@router.get("/reservations", response_model=List[ReservationResponse])
-async def list_reservations(
-    filters: ReservationFilter = Depends(),
-    current_user: User = Depends(require_active_user),
-    db: Session = Depends(get_db),
-) -> List[ReservationResponse]:
-    """List reservations filtered by query parameters."""
-
-    query = (
-        select(Reservation)
-        .options(
-            selectinload(Reservation.resource),
-            selectinload(Reservation.user),
-        )
-        .order_by(Reservation.start_time.desc())
-    )
-    query = _apply_filters(query, filters)
-
-    if current_user.role != UserRole.ADMIN:
-        permitted_ids = {perm.resource_id for perm in current_user.permissions}
-        query = query.where(
-            (Reservation.user_id == current_user.id)
-            | Reservation.resource_id.in_(permitted_ids)
-        )
-
-    reservations = db.scalars(query).unique().all()
-    return [_serialize_reservation(reservation) for reservation in reservations]
-
-
-@router.get("/reservations/{reservation_id}", response_model=ReservationResponse)
-async def get_reservation(
-    reservation_id: int,
-    current_user: User = Depends(require_active_user),
-    db: Session = Depends(get_db),
-) -> ReservationResponse:
-    """Get a reservation by ID."""
-
-    reservation = db.scalar(
-        select(Reservation)
-        .options(
-            selectinload(Reservation.resource),
-            selectinload(Reservation.user),
-        )
-        .where(Reservation.id == reservation_id)
-    )
-    if not reservation:
-        raise HTTPException(status_code=404, detail="Reservation not found")
-
-    if current_user.role != UserRole.ADMIN:
-        permitted_ids = {perm.resource_id for perm in current_user.permissions}
-        if (
-            reservation.user_id != current_user.id
-            and reservation.resource_id not in permitted_ids
-        ):
-            raise HTTPException(status_code=403, detail="Access denied")
-
-    return _serialize_reservation(reservation)
-
-
 @router.get("/reservations/export")
 async def export_reservations(
     format: str = "csv",
@@ -203,6 +144,65 @@ async def export_reservations(
         )
 
     raise HTTPException(status_code=400, detail="Unsupported export format")
+
+
+@router.get("/reservations", response_model=List[ReservationResponse])
+async def list_reservations(
+    filters: ReservationFilter = Depends(),
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> List[ReservationResponse]:
+    """List reservations filtered by query parameters."""
+
+    query = (
+        select(Reservation)
+        .options(
+            selectinload(Reservation.resource),
+            selectinload(Reservation.user),
+        )
+        .order_by(Reservation.start_time.desc())
+    )
+    query = _apply_filters(query, filters)
+
+    if current_user.role != UserRole.ADMIN:
+        permitted_ids = {perm.resource_id for perm in current_user.permissions}
+        query = query.where(
+            (Reservation.user_id == current_user.id)
+            | Reservation.resource_id.in_(permitted_ids)
+        )
+
+    reservations = db.scalars(query).unique().all()
+    return [_serialize_reservation(reservation) for reservation in reservations]
+
+
+@router.get("/reservations/{reservation_id}", response_model=ReservationResponse)
+async def get_reservation(
+    reservation_id: int,
+    current_user: User = Depends(require_active_user),
+    db: Session = Depends(get_db),
+) -> ReservationResponse:
+    """Get a reservation by ID."""
+
+    reservation = db.scalar(
+        select(Reservation)
+        .options(
+            selectinload(Reservation.resource),
+            selectinload(Reservation.user),
+        )
+        .where(Reservation.id == reservation_id)
+    )
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    if current_user.role != UserRole.ADMIN:
+        permitted_ids = {perm.resource_id for perm in current_user.permissions}
+        if (
+            reservation.user_id != current_user.id
+            and reservation.resource_id not in permitted_ids
+        ):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    return _serialize_reservation(reservation)
 
 
 @router.get("/reservations/stats/summary", response_model=StatsResponse)

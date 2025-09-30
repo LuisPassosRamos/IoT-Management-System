@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -121,7 +121,9 @@ def test_unauthorized_user_cannot_manage_resource(db_session):
 
     db_session.add(ResourcePermission(user_id=user.id, resource_id=resource.id))
     db_session.flush()
-    # should not raise now
+    db_session.refresh(user)
+    db_session.refresh(resource)
+    # should not raise agora
     reservation_service.ensure_user_can_manage_resource(user, resource)
 
 

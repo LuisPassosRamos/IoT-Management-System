@@ -67,10 +67,12 @@ def ensure_user_can_manage_resource(user: User, resource: Resource) -> None:
 
     permitted_ids = {perm.resource_id for perm in user.permissions}
     if resource.id not in permitted_ids:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User does not have permission for this resource",
-        )
+        resource_ids = {perm.resource_id for perm in resource.permitted_users if perm.user_id == user.id}
+        if resource.id not in resource_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not have permission for this resource",
+            )
 
 
 def get_active_reservation(db: Session, resource_id: int) -> Optional[Reservation]:
