@@ -1,4 +1,8 @@
-﻿# IoT Management System
+# IoT Management System
+
+> **Contexto para o portfólio:** projeto acadêmico com dispositivos simulados, API FastAPI, reservas, controle de acesso, auditoria e WebSocket. [Veja o case, a arquitetura e os limites](https://luispassosramos.github.io/LuisPortifolio/projetos/iot-management-system/).
+>
+> As credenciais e a chave padrão documentadas aqui servem ao ambiente de demonstração. Este repositório não representa uma implantação de produção.
 
 Sistema completo para gestao de recursos compartilhados com apoio de dispositivos IoT simulados. O projeto inclui backend FastAPI, frontend responsivo em Bootstrap, simulador de dispositivos em Python e artefatos de documentacao.
 
