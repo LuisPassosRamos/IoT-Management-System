@@ -1,14 +1,5 @@
-import os
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
-
-TEST_DB_PATH = Path(__file__).parent / "test_iot.db"
-if TEST_DB_PATH.exists():
-    TEST_DB_PATH.unlink()
-
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"  # noqa: E501
 
 from app.db.base import Base
 from app.db.session import engine
@@ -58,6 +49,22 @@ def test_login_success(client: TestClient) -> None:
 def test_login_failure(client: TestClient) -> None:
     response = client.post("/login", json={"username": "ghost", "password": "nope"})
     assert response.status_code == 401
+
+
+def test_device_status_requires_credentials_and_resource_access(client: TestClient) -> None:
+    admin = auth_headers(login(client, "admin", "admin123")["token"])
+    user = auth_headers(login(client, "user", "user123")["token"])
+    device = client.get("/devices", headers=admin).json()[0]
+    users = client.get("/users", headers=admin).json()
+    user_id = next(record["id"] for record in users if record["username"] == "user")
+    client.put(
+        f"/users/{user_id}/permissions", headers=admin, json={"resource_ids": []}
+    ).raise_for_status()
+    report = {"device_id": device["id"], "status": "locked"}
+
+    assert client.post("/devices/report", json=report).status_code == 401
+    assert client.post("/devices/report", json=report, headers=user).status_code == 403
+    assert client.post("/devices/report", json=report, headers=admin).status_code == 204
 
 
 def test_user_can_list_permitted_resources(client: TestClient) -> None:

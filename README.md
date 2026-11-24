@@ -1,6 +1,6 @@
 # IoT Management System
 
-> **Contexto para o portfólio:** projeto acadêmico com dispositivos simulados, API FastAPI, reservas, controle de acesso, auditoria e WebSocket. [Veja o case, a arquitetura e os limites](https://luispassosramos.github.io/LuisPortifolio/projetos/iot-management-system/).
+> **Contexto para o portfólio:** projeto acadêmico com dispositivos simulados, API FastAPI, reservas, controle de acesso e auditoria. [Veja o case, a arquitetura e os limites](https://luispassosramos.github.io/LuisPortifolio/projetos/iot-management-system/).
 >
 > As credenciais e a chave padrão documentadas aqui servem ao ambiente de demonstração. Este repositório não representa uma implantação de produção.
 
@@ -11,7 +11,6 @@ Sistema completo para gestao de recursos compartilhados com apoio de dispositivo
 - **Controle de reservas** com verificacao de conflitos, timeout automatico e liberacao forçada por administradores.
 - **IoT integrado**: dispositivos virtuais trocam comandos com o backend (`lock`/`unlock`, leituras de sensores) via API dedicada.
 - **Auditoria completa** com logs estruturados e exportacao historica (CSV/PDF).
-- **Atualizacoes em tempo real** via WebSocket para recursos, reservas e dispositivos.
 - **Documentacao**: diagramas PlantUML, relatorio tecnico e roteiro de apresentacao.
 
 ## Arquitetura
@@ -31,7 +30,7 @@ IoT Management System
 └── data/             # Banco SQLite padrao (`iot.db`)
 ```
 
-Componentes se comunicam exclusivamente por HTTP/JSON. O backend expone WebSocket (`/ws/updates`) para notificacoes.
+Os fluxos de reserva, auditoria e simulação usam HTTP/JSON.
 
 ## Banco de dados
 
@@ -55,7 +54,6 @@ Entidades-chave:
 - Dispositivos: `GET/POST/PUT/DELETE /devices`, `POST /devices/report`, `POST /devices/{id}/commands/next` (consumir comandos).
 - Usuarios: `GET/POST/PUT /users`, `PUT /users/{id}/permissions` (somente admin).
 - Auditoria: `GET /audit-logs` (admin).
-- WebSocket: `ws://<host>:8000/ws/updates` (eventos `resource.*`, `reservation.*`, `device.*`).
 
 **Workers e fila**:
 - `reservation_service` executa verificacao periodica (`activate_scheduled_reservations`, `expire_overdue_reservations`).
@@ -75,7 +73,6 @@ Entidades-chave:
   - Painel usuario: lista de recursos com filtros, reserva/liberacao, reservas ativas, historico filtravel, estatisticas (grafico linha).
   - Painel admin: abas para recursos, dispositivos, usuarios, reservas, auditoria; CRUD completo + exportacao CSV/PDF.
   - Admin pode selecionar outro usuario para reservar (`select` na carta de recurso).
-  - WebSocket reconecta automaticamente e sincroniza caches.
   - Botões possuem `aria-label` e layout se adapta (flex wrap, selectors responsivos).
 
 ## Simulador de dispositivos (`device/simulator.py`)
@@ -99,7 +96,9 @@ Parâmetros extras: `--interval` (segundos), `--insecure`.
 
 ## WebSocket e eventos
 
-Eventos JSON enviados pelo backend:
+A rota `/ws/updates` está implementada em [realtime.py](backend/app/routers/realtime.py) e ainda precisa de autenticação e filtragem por permissão antes de ser registrada na aplicação. As rotas REST atendem aos fluxos da demonstração atual.
+
+Eventos previstos:
 - `resource.created | updated | deleted`
 - `reservation.created | updated`
 - `device.created | updated | deleted`
@@ -158,10 +157,11 @@ Servicos: backend (8000), frontend (8080).
 Antes de executar os testes garanta que todas as dependencias estejam instaladas:
 ```bash
 cd backend
-pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
-(Instale `pytest` caso necessario; o arquivo de requirements inclui `sqlalchemy` e `httpx` usados nos testes.)
+
+Os testes usam um banco SQLite temporário. O simulador envia o token obtido no login em cada atualização de dispositivo. A API aceita o relatório para administradores e para usuários com acesso ao recurso associado.
 
 ## API resumida
 

@@ -274,6 +274,7 @@ async def fetch_next_command(
 @router.post("/devices/report", status_code=status.HTTP_204_NO_CONTENT)
 async def report_device_status(
     report: DeviceStatusReport,
+    current_user: User = Depends(require_active_user),
     db: Session = Depends(get_db),
 ) -> None:
     """Endpoint for device simulators to send status updates."""
@@ -281,6 +282,11 @@ async def report_device_status(
     device = db.get(Device, report.device_id)
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    if current_user.role != UserRole.ADMIN:
+        permitted_ids = {permission.resource_id for permission in current_user.permissions}
+        if device.resource_id not in permitted_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to device")
 
     device.status = report.status
     device.numeric_value = report.numeric_value
@@ -291,6 +297,7 @@ async def report_device_status(
     audit.record_audit(
         db,
         action="device_status_report",
+        user_id=current_user.id,
         device_id=device.id,
         resource_id=device.resource_id,
         details={
