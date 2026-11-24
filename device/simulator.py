@@ -93,6 +93,7 @@ class BackendClient:
         }
         response = self.http.post(
             f"{self.base_url}/devices/report",
+            headers=self._auth_headers(),
             json=payload,
         )
         response.raise_for_status()

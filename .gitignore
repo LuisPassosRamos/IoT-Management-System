@@ -51,6 +51,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+/backend/tests/test_iot.db
 
 # Temporary files
 *.tmp
